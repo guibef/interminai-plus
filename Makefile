@@ -1,4 +1,4 @@
-.PHONY: help install-skill install-skill-rust install-skill-python install-claude build test test-python demo demo-gdb clean
+.PHONY: help install-skill install-skill-rust install-skill-python install-claude build test-rust test-python test-skill demo demo-gdb clean
 
 .DEFAULT_GOAL := help
 
@@ -11,6 +11,7 @@ help: ## Show this help message
 	@echo "  make install-claude       - Install skill to ~/.claude/skills/ for Claude Code"
 	@echo "  make test                 - Run tests with Rust implementation"
 	@echo "  make test-python          - Run tests with Python implementation"
+	@echo "  make test-skill           - Validate skill using skills-ref"
 	@echo "  make demo                 - Generate demo.gif showing Claude using interminai"
 	@echo "  make demo-gdb             - Generate demo-gdb.gif showing Claude debugging with gdb"
 	@echo "  make build                - Generate a release binary (don't install)
@@ -45,12 +46,24 @@ install-claude: install-skill ## Install skill to ~/.claude/skills/ for Claude C
 	@cp -r skills/interminai ~/.claude/skills/
 	@echo "✓ Installed skill to ~/.claude/skills/interminai"
 
-test:
+test: test-rust test-python test-skill
+
+test-rust:
 	cargo test
 
 test-python:
 	@echo "Running tests with Python implementation..."
 	OVERRIDE_CARGO_BIN_EXE_interminai=$(PWD)/interminai.py cargo test
+
+test-skill: subprojects/agentskills/skills-ref/.venv ## Validate skill using skills-ref
+	@echo "Validating skill..."
+	@. subprojects/agentskills/skills-ref/.venv/bin/activate && skills-ref validate skills/interminai
+	@echo "✓ Skill validation passed"
+
+subprojects/agentskills/skills-ref/.venv:
+	@git submodule update --init
+	@echo "Installing skills-ref..."
+	@cd subprojects/agentskills/skills-ref && uv sync
 
 demo:
 	@echo "Setting up clean demo repository..."
@@ -69,3 +82,4 @@ demo-gdb:
 clean:
 	cargo clean
 	rm -f skills/interminai/scripts/interminai
+	-git submodule deinit -f subprojects/agentskills
