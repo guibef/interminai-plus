@@ -1,0 +1,22 @@
+[package]
+name = "interminai"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+tokio = { version = "1.40", features = ["full"] }
+anyhow = "1.0"
+libc = "0.2"
+tempfile = "3.12"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+nix = { version = "0.27", features = ["term", "process", "signal", "ioctl", "fs"] }
+vte = "0.13"
+fork = "0.6.0"
+rustix = { version = "1.1.2", features = ["termios", "net", "process"] }
+
+[dev-dependencies]
+tempfile = "3.12"
+assert_cmd = "2.0"
+predicates = "3.1"

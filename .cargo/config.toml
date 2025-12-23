@@ -1,0 +1,6 @@
+[build]
+target-dir = "target"
+
+[alias]
+# Build and install to .claude/scripts/ for Claude to use
+install-skill = "build --release"

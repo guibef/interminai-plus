@@ -1,0 +1,345 @@
+# interminai Socket Protocol
+
+## Overview
+
+The `interminai` daemon communicates with client commands via a Unix domain socket using a simple JSON-based request-response protocol.
+
+**Note on encoding:** JSON strings automatically escape special characters:
+- Escape sequences like `\x1b` (ESC) become `\u001b` in JSON
+- Newlines `\n` become `\\n`
+- Rust's `serde_json` handles encoding/decoding automatically
+- Application code works with raw bytes/strings, JSON library handles escaping
+
+**Alternatives considered:**
+- Binary protocol with length prefixes (more efficient but harder to debug)
+- Base64 encoding (adds 33% overhead, less human-readable)
+- JSON chosen for debuggability and simplicity
+
+## Connection Model
+
+- Client connects to Unix socket
+- Client sends one JSON request (newline-terminated)
+- Daemon sends one JSON response (newline-terminated)
+- Connection closes after response (except for WAIT which may block)
+
+## Request Format
+
+All requests are JSON objects with a `type` field:
+
+```json
+{
+  "type": "COMMAND_NAME",
+  ... additional fields ...
+}
+```
+
+## Response Format
+
+All responses are JSON objects:
+
+```json
+{
+  "status": "ok" | "error",
+  "data": { ... },
+  "error": "error message if status is error"
+}
+```
+
+## Commands
+
+### INPUT - Send input to process
+
+**Request:**
+```json
+{
+  "type": "INPUT",
+  "data": "keys to send (may contain escape sequences)"
+}
+```
+
+**Response:**
+```json
+{
+  "status": "ok"
+}
+```
+
+**Errors:**
+- Process not running
+- Failed to write to PTY
+
+---
+
+### OUTPUT - Get current screen state
+
+**Request:**
+```json
+{
+  "type": "OUTPUT",
+  "format": "ascii" | "json"
+}
+```
+
+**Response (ascii format):**
+```json
+{
+  "status": "ok",
+  "data": {
+    "screen": "ASCII art representation of screen\nwith newlines...",
+    "cursor": {
+      "row": 5,
+      "col": 10
+    },
+    "size": {
+      "rows": 24,
+      "cols": 80
+    }
+  }
+}
+```
+
+**Response (json format):**
+```json
+{
+  "status": "ok",
+  "data": {
+    "cells": [
+      [{"char": "a", "fg": "white", "bg": "black"}, ...],
+      ...
+    ],
+    "cursor": {"row": 5, "col": 10},
+    "size": {"rows": 24, "cols": 80}
+  }
+}
+```
+
+---
+
+### RUNNING - Check if process is still running
+
+**Request:**
+```json
+{
+  "type": "RUNNING"
+}
+```
+
+**Response (process running):**
+```json
+{
+  "status": "ok",
+  "data": {
+    "running": true
+  }
+}
+```
+
+**Response (process finished):**
+```json
+{
+  "status": "ok",
+  "data": {
+    "running": false,
+    "exit_code": 0
+  }
+}
+```
+
+---
+
+### WAIT - Block until process exits
+
+**Request:**
+```json
+{
+  "type": "WAIT"
+}
+```
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "data": {
+    "exit_code": 0
+  }
+}
+```
+
+**Notes:**
+- This command blocks until the process exits
+- Connection stays open while waiting
+- Returns immediately if process already exited
+
+---
+
+### KILL - Send signal to process
+
+**Request:**
+```json
+{
+  "type": "KILL",
+  "signal": "SIGTERM" | "SIGKILL" | "SIGINT" | "9" | "15" | "2" | ...
+}
+```
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "data": {
+    "signal_sent": "SIGTERM"
+  }
+}
+```
+
+**Errors:**
+- Invalid signal name/number
+- Process already dead
+- Failed to send signal
+
+---
+
+### STOP - Shutdown daemon
+
+**Request:**
+```json
+{
+  "type": "STOP"
+}
+```
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "data": {
+    "message": "Shutting down"
+  }
+}
+```
+
+**Notes:**
+- Daemon will kill child process (if running)
+- Daemon will close socket
+- Daemon will exit after sending response
+- If socket was auto-generated, daemon unlinks it before exit
+
+---
+
+## Error Handling
+
+### Malformed Requests
+
+If a request cannot be parsed as JSON or is missing required fields:
+
+```json
+{
+  "status": "error",
+  "error": "Invalid request: missing 'type' field"
+}
+```
+
+### Unknown Commands
+
+If the `type` field contains an unknown command:
+
+```json
+{
+  "status": "error",
+  "error": "Unknown command: INVALID_COMMAND"
+}
+```
+
+### Operation Failures
+
+If a command fails to execute:
+
+```json
+{
+  "status": "error",
+  "error": "Failed to send input: Broken pipe"
+}
+```
+
+**Important:** The daemon **must not crash** on errors. It should:
+1. Send an error response
+2. Close the connection
+3. Continue serving other requests
+
+---
+
+## Client Disconnection
+
+If a client disconnects before reading the full response:
+- Daemon detects broken pipe / connection reset
+- Daemon discards remaining response data
+- Daemon logs the event (if debugging enabled)
+- Daemon continues serving other clients
+
+The daemon **must be resilient** to clients dying mid-response.
+
+---
+
+## Concurrency
+
+**Commands are processed sequentially, one at a time.** The daemon does not
+process commands in parallel. This guarantees that if you send command A
+then command B, A will complete before B starts.
+
+This means:
+- No race conditions between commands
+- Predictable ordering
+- WAIT will block all other commands until the process exits
+
+If you need to send input while a WAIT is pending, don't use WAIT - poll
+with RUNNING instead.
+
+---
+
+## Wire Format Example
+
+**Client sends (pressing 'i', typing 'hello', ESC, then :wq):**
+```
+{"type":"INPUT","data":"ihello\u001b:wq\n"}\n
+```
+
+**Daemon responds:**
+```
+{"status":"ok"}\n
+```
+
+**Client sends (getting screen output):**
+```
+{"type":"OUTPUT","format":"ascii"}\n
+```
+
+**Daemon responds (screen contains escape sequences in output):**
+```
+{"status":"ok","data":{"screen":"  File  Edit  View\n~\n~\n","cursor":{"row":1,"col":0},"size":{"rows":24,"cols":80}}}\n
+```
+
+**Notes:**
+- Each message is a single line of JSON terminated by `\n`
+- Binary data (like ESC = `\x1b`) is escaped as `\u001b` in JSON
+- JSON libraries handle escaping automatically - app code uses raw strings
+- Maximum message size: 10MB (reasonable limit for screen output)
+- The `\n` at the end of each JSON message is the message delimiter, not part of the JSON
+
+---
+
+## Signal Mapping
+
+Named signals to numbers (POSIX standard):
+
+| Name     | Number |
+|----------|--------|
+| SIGHUP   | 1      |
+| SIGINT   | 2      |
+| SIGQUIT  | 3      |
+| SIGKILL  | 9      |
+| SIGTERM  | 15     |
+| SIGUSR1  | 10     |
+| SIGUSR2  | 12     |
+
+Both formats are accepted. Daemon normalizes to signal number internally.
