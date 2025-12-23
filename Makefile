@@ -8,14 +8,15 @@ help: ## Show this help message
 	@echo "  make install-skill        - Install Rust implementation (default)"
 	@echo "  make install-skill-rust   - Install Rust implementation to skills/interminai/scripts/"
 	@echo "  make install-skill-python - Install Python implementation to skills/interminai/scripts/"
-	@echo "  make install-claude       - Install skill to ~/.claude/skills/ for Claude Code"
-	@echo "  make test                 - Run tests with Rust implementation"
+	@echo "  make install-claude       - Install Rust skill to ~/.claude/skills/ for Claude Code"
+	@echo "  make test                 - Run all tests"
+	@echo "  make test-rust            - Run tests with Rust implementation"
 	@echo "  make test-python          - Run tests with Python implementation"
 	@echo "  make test-skill           - Validate skill using skills-ref"
 	@echo "  make demo                 - Generate demo.gif showing Claude using interminai"
 	@echo "  make demo-gdb             - Generate demo-gdb.gif showing Claude debugging with gdb"
 	@echo "  make build                - Generate a release binary (don't install)
-	@echo "  make clean                - Remove build artifacts and installed binaries"
+	@echo "  make clean                - Remove build artifacts and executables installed in this repo"
 	@echo "  make help                 - Show this help message"
 	@echo ""
 
