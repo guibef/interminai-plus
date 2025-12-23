@@ -32,6 +32,7 @@ class Screen:
         self.cells = [[' ' for _ in range(cols)] for _ in range(rows)]
         self.cursor_row = 0
         self.cursor_col = 0
+        self.last_char = ' '
 
     def scroll_up(self):
         """Scroll screen up by one line"""
@@ -40,6 +41,7 @@ class Screen:
 
     def print_char(self, c):
         """Print a character at cursor position"""
+        self.last_char = c
         if self.cursor_row < self.rows and self.cursor_col < self.cols:
             self.cells[self.cursor_row][self.cursor_col] = c
             self.cursor_col += 1
@@ -87,6 +89,12 @@ class Screen:
         elif action == 'D':  # Cursor back
             n = max(params[0] if params else 1, 1)
             self.cursor_col = max(0, self.cursor_col - n)
+        elif action == 'G':  # Cursor horizontal absolute (hpa)
+            col = (params[0] if params else 1) - 1  # 1-based to 0-based
+            self.cursor_col = min(self.cols - 1, max(0, col))
+        elif action == 'd':  # Cursor vertical absolute (vpa)
+            row = (params[0] if params else 1) - 1  # 1-based to 0-based
+            self.cursor_row = min(self.rows - 1, max(0, row))
         elif action == 'J':  # Erase display
             mode = params[0] if params else 0
             if mode == 0:  # Clear from cursor to end
@@ -103,6 +111,9 @@ class Screen:
             mode = params[0] if params else 0
             if mode == 0:  # Clear from cursor to end of line
                 for col in range(self.cursor_col, self.cols):
+                    self.cells[self.cursor_row][col] = ' '
+            elif mode == 1:  # Clear from beginning of line to cursor (el1)
+                for col in range(self.cursor_col + 1):
                     self.cells[self.cursor_row][col] = ' '
             elif mode == 2:  # Clear entire line
                 for col in range(self.cols):
@@ -123,6 +134,43 @@ class Screen:
                     self.cells.pop()
                     # Insert blank line at cursor position
                     self.cells.insert(self.cursor_row, [' ' for _ in range(self.cols)])
+        elif action == 'P':  # Delete Character (dch)
+            n = max(params[0] if params else 1, 1)
+            row = self.cursor_row
+            for _ in range(n):
+                if self.cursor_col < self.cols:
+                    self.cells[row].pop(self.cursor_col)
+                    self.cells[row].append(' ')
+        elif action == '@':  # Insert Character (ich)
+            n = max(params[0] if params else 1, 1)
+            row = self.cursor_row
+            for _ in range(n):
+                if self.cursor_col < self.cols:
+                    self.cells[row].pop()
+                    self.cells[row].insert(self.cursor_col, ' ')
+        elif action == 'X':  # Erase Character (ech)
+            n = max(params[0] if params else 1, 1)
+            for i in range(n):
+                col = self.cursor_col + i
+                if col < self.cols:
+                    self.cells[self.cursor_row][col] = ' '
+        elif action == 'S':  # Scroll Up (SU)
+            n = max(params[0] if params else 1, 1)
+            for _ in range(n):
+                self.scroll_up()
+        elif action == 'T':  # Scroll Down (SD)
+            n = max(params[0] if params else 1, 1)
+            for _ in range(n):
+                self.cells.pop()
+                self.cells.insert(0, [' ' for _ in range(self.cols)])
+        elif action == 'Z':  # Back Tab (cbt)
+            if self.cursor_col > 0:
+                self.cursor_col = ((self.cursor_col - 1) // 8) * 8
+        elif action == 'b':  # Repeat (rep) - repeat last printed char N times
+            n = max(params[0] if params else 1, 1)
+            c = self.last_char
+            for _ in range(n):
+                self.print_char(c)
 
     def process_output(self, data):
         """Process output data with basic escape sequence parsing"""
@@ -147,7 +195,8 @@ class Screen:
                             params.append(int(current_param) if current_param else 0)
                             current_param = ''
                             i += 1
-                        elif c.isalpha():
+                        elif c.isalpha() or c in '@`':
+                            # CSI final bytes are 0x40-0x7E (including @ and letters)
                             if current_param:
                                 params.append(int(current_param))
                             self.handle_csi(params, c)
@@ -165,10 +214,45 @@ class Screen:
             # Handle control characters
             if byte < 0x20:
                 self.handle_control(byte)
-            elif byte < 0x7f:
+                i += 1
+            elif byte < 0x80:
+                # ASCII printable
                 self.print_char(chr(byte))
-
-            i += 1
+                i += 1
+            else:
+                # UTF-8 multi-byte sequence
+                # Determine length from first byte
+                if byte < 0xC0:
+                    i += 1  # Invalid, skip
+                elif byte < 0xE0:
+                    # 2-byte sequence
+                    if i + 1 < len(data):
+                        try:
+                            char = data[i:i+2].decode('utf-8')
+                            self.print_char(char)
+                        except:
+                            pass
+                    i += 2
+                elif byte < 0xF0:
+                    # 3-byte sequence
+                    if i + 2 < len(data):
+                        try:
+                            char = data[i:i+3].decode('utf-8')
+                            self.print_char(char)
+                        except:
+                            pass
+                    i += 3
+                elif byte < 0xF8:
+                    # 4-byte sequence
+                    if i + 3 < len(data):
+                        try:
+                            char = data[i:i+4].decode('utf-8')
+                            self.print_char(char)
+                        except:
+                            pass
+                    i += 4
+                else:
+                    i += 1  # Invalid, skip
 
     def render(self):
         """Render the screen as a string"""
@@ -323,9 +407,11 @@ def run_daemon(socket_path, cols, rows, command, socket_was_auto_generated):
         if slave_fd > 2:
             os.close(slave_fd)
 
-        # Unset TERM to force vim and other apps to use simpler escape sequences
-        # that our basic terminal emulator can handle
-        os.environ.pop('TERM', None)
+        # Set TERM=ansi to force apps to use basic escape sequences that our
+        # terminal emulator can handle. The "ansi" terminfo doesn't advertise
+        # scroll regions (csr) which we don't support, but does have insert/delete
+        # line (il1/dl1) which we do support.
+        os.environ['TERM'] = 'ansi'
 
         # Execute command
         os.execvp(command[0], command)

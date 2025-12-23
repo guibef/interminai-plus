@@ -168,6 +168,7 @@ struct Screen {
     cells: Vec<Vec<char>>,
     cursor_row: usize,
     cursor_col: usize,
+    last_char: char,
 }
 
 impl Screen {
@@ -178,6 +179,7 @@ impl Screen {
             cells: vec![vec![' '; cols]; rows],
             cursor_row: 0,
             cursor_col: 0,
+            last_char: ' ',
         }
     }
 
@@ -200,6 +202,7 @@ impl Screen {
 
 impl Perform for Screen {
     fn print(&mut self, c: char) {
+        self.last_char = c;
         if self.cursor_row < self.rows && self.cursor_col < self.cols {
             self.cells[self.cursor_row][self.cursor_col] = c;
             self.cursor_col += 1;
@@ -275,6 +278,16 @@ impl Perform for Screen {
                 let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
                 self.cursor_col = self.cursor_col.saturating_sub(n);
             }
+            'G' => {
+                // Cursor horizontal absolute (hpa) - move to column N
+                let col = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).saturating_sub(1) as usize;
+                self.cursor_col = col.min(self.cols - 1);
+            }
+            'd' => {
+                // Cursor vertical absolute (vpa) - move to row N
+                let row = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).saturating_sub(1) as usize;
+                self.cursor_row = row.min(self.rows - 1);
+            }
             'J' => {
                 // Erase display
                 let mode = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(0);
@@ -313,6 +326,12 @@ impl Perform for Screen {
                             self.cells[self.cursor_row][col] = ' ';
                         }
                     }
+                    1 => {
+                        // Clear from beginning of line to cursor (el1)
+                        for col in 0..=self.cursor_col {
+                            self.cells[self.cursor_row][col] = ' ';
+                        }
+                    }
                     2 => {
                         // Clear entire line
                         for col in 0..self.cols {
@@ -346,14 +365,86 @@ impl Perform for Screen {
                     }
                 }
             }
+            'P' => {
+                // Delete Character (dch) - delete N chars, shift rest left
+                let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
+                let row = self.cursor_row;
+                for _ in 0..n {
+                    if self.cursor_col < self.cols {
+                        self.cells[row].remove(self.cursor_col);
+                        self.cells[row].push(' ');
+                    }
+                }
+            }
+            '@' => {
+                // Insert Character (ich) - insert N blank chars, shift rest right
+                let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
+                let row = self.cursor_row;
+                for _ in 0..n {
+                    if self.cursor_col < self.cols {
+                        self.cells[row].pop();
+                        self.cells[row].insert(self.cursor_col, ' ');
+                    }
+                }
+            }
+            'X' => {
+                // Erase Character (ech) - erase N chars (replace with spaces)
+                let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
+                for i in 0..n {
+                    let col = self.cursor_col + i;
+                    if col < self.cols {
+                        self.cells[self.cursor_row][col] = ' ';
+                    }
+                }
+            }
+            'S' => {
+                // Scroll Up (SU) - scroll content up N lines
+                let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
+                for _ in 0..n {
+                    self.scroll_up();
+                }
+            }
+            'T' => {
+                // Scroll Down (SD) - scroll content down N lines
+                let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
+                for _ in 0..n {
+                    self.cells.pop();
+                    self.cells.insert(0, vec![' '; self.cols]);
+                }
+            }
+            'Z' => {
+                // Back Tab (cbt) - move to previous tab stop
+                if self.cursor_col > 0 {
+                    self.cursor_col = ((self.cursor_col - 1) / 8) * 8;
+                }
+            }
+            'b' => {
+                // Repeat (rep) - repeat last printed character N times
+                let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
+                let c = self.last_char;
+                for _ in 0..n {
+                    self.print(c);
+                }
+            }
+            'g' => {
+                // Clear Tab Stop (tbc) - mode 3 clears all, mode 0 clears current
+                // We use fixed 8-column tabs, so ignore
+            }
             'm' => {
-                // SGR - ignore for now (colors/attributes)
+                // SGR - ignore (colors/attributes)
             }
             _ => {}
         }
     }
 
-    fn esc_dispatch(&mut self, _intermediates: &[u8], _ignore: bool, _byte: u8) {}
+    fn esc_dispatch(&mut self, _intermediates: &[u8], _ignore: bool, byte: u8) {
+        match byte {
+            b'H' => {
+                // Set Tab Stop (hts) - we use fixed 8-column tabs, ignore
+            }
+            _ => {}
+        }
+    }
 }
 
 struct DaemonState {
@@ -724,11 +815,12 @@ fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, c
             // Drop slave after dup2 (automatically closes it)
             drop(pty.slave);
 
-            // Unset TERM to force applications to use basic escape sequences that our
-            // simple terminal emulator can handle. With TERM set (e.g. xterm-256color),
-            // vim uses advanced features like scroll regions which we don't support,
-            // causing the screen display to desync from the actual buffer.
-            std::env::remove_var("TERM");
+            // Set TERM=ansi to force applications to use basic escape sequences that our
+            // simple terminal emulator can handle. The "ansi" terminfo doesn't advertise
+            // scroll regions (csr) which we don't support, but does have insert/delete
+            // line (il1/dl1) which we do support. With TERM set to xterm-256color or
+            // similar, vim uses advanced features causing screen display to desync.
+            std::env::set_var("TERM", "ansi");
 
             // Exec command
             let program = &command[0];
