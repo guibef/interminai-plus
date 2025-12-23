@@ -1,4 +1,4 @@
-.PHONY: help install-skill install-skill-rust install-skill-python test test-python demo demo-gdb clean
+.PHONY: help install-skill install-skill-rust install-skill-python install-claude test test-python demo demo-gdb clean
 
 .DEFAULT_GOAL := help
 
@@ -8,6 +8,7 @@ help: ## Show this help message
 	@echo "  make install-skill        - Install Rust implementation (default)"
 	@echo "  make install-skill-rust   - Install Rust implementation to skills/interminai/scripts/"
 	@echo "  make install-skill-python - Install Python implementation to skills/interminai/scripts/"
+	@echo "  make install-claude       - Install skill to ~/.claude/skills/ for Claude Code"
 	@echo "  make test                 - Run tests with Rust implementation"
 	@echo "  make test-python          - Run tests with Python implementation"
 	@echo "  make demo                 - Generate demo.gif showing Claude using interminai"
@@ -34,6 +35,12 @@ install-skill-python:
 	@chmod +x skills/interminai/scripts/interminai
 	@echo "✓ Installed Python version to skills/interminai/scripts/interminai"
 	@echo "  (accessible via .claude/skills and .codex/skills symlinks)"
+
+install-claude: install-skill ## Install skill to ~/.claude/skills/ for Claude Code
+	@echo "Installing skill to ~/.claude/skills/..."
+	@mkdir -p ~/.claude/skills
+	@cp -r skills/interminai ~/.claude/skills/
+	@echo "✓ Installed skill to ~/.claude/skills/interminai"
 
 test:
 	cargo test
