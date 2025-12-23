@@ -114,8 +114,8 @@ cargo test
 # Start vim editing a file
 interminai start --socket /tmp/vim.sock -- vim myfile.txt
 
-# Send keystrokes (enter insert mode, type text, save)
-echo "iHello, World!\x1b:wq\n" | interminai input --socket /tmp/vim.sock
+# Send keystrokes (enter insert mode, type text, escape, save)
+interminai input --socket /tmp/vim.sock --text "iHello, World!\e:wq\n"
 
 # View the screen
 interminai output --socket /tmp/vim.sock
@@ -137,8 +137,8 @@ interminai stop --socket /tmp/vim.sock
 # Start an interactive program (runs as daemon by default)
 interminai start [--socket PATH] [--size WxH] [--no-daemon] -- COMMAND...
 
-# Send input (reads from stdin)
-interminai input --socket PATH
+# Send input
+interminai input --socket PATH --text TEXT
 
 # Get screen output
 interminai output --socket PATH
