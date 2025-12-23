@@ -2,4 +2,7 @@
 Cargo.lock
 **/*.rs.bk
 **/*~
+**/*.swp
+__pycache__/
+*.pyc
 skills/interminai/scripts/interminai
