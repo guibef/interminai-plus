@@ -51,10 +51,10 @@ install-claude: install-skill install-atomic
 	@echo "Old version moved to $$TMPDIR/interminai"
 
 install-atomic:
-	@test -n "$(INSTALL_SRC)" || { echo "Error: INSTALL_SRC not set"; exit 1; }
-	@test -n "$(INSTALL_DST)" || { echo "Error: INSTALL_DST not set"; exit 1; }
-	@test -n "$(INSTALL_BACKUP)" || { echo "Error: INSTALL_BACKUP not set"; exit 1; }
-	@test -n "$(INSTALL_NAME)" || { echo "Error: INSTALL_NAME not set"; exit 1; }
+	@test -n "$(INSTALL_SRC)" || exit 1
+	@test -n "$(INSTALL_DST)" || exit 1
+	@test -n "$(INSTALL_BACKUP)" || exit 1
+	@test -n "$(INSTALL_NAME)" || exit 1
 	@mkdir -p $(INSTALL_BACKUP)
 	@mkdir -p $(INSTALL_NAME)
 	@TMPDIR=$$(mktemp -d $(INSTALL_BACKUP)/XXXXXX) && \
