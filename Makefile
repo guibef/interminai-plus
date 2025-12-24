@@ -61,7 +61,8 @@ install-atomic: build
 		cp -r skills/interminai "$$TMPDIR/interminai" && \
 		test -n "$(SRC)" && cp $(SRC) "$$TMPDIR/interminai/scripts/interminai"; \
 		mkdir -p $(DST) && \
-		mv --exchange "$$TMPDIR/interminai" $(DST)
+		mv --exchange "$$TMPDIR/interminai" $(DST) && \
+		echo "Old version backed up at $$TMPDIR/interminai"
 	@echo "Installed $(NAME) version to $(DST)/interminai"
 
 test: test-rust test-python test-skill
