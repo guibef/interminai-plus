@@ -75,6 +75,7 @@ Exact counts for `h`/`j`/`k`/`l` are critical - cursor position after `dd` isn't
 - `/<pattern>` - Search for text (`/goodbye\ndd`)
 - `gg`/`G` - Anchor from known position
 - `--cursor print` - Check position after operations
+- `:%s/old/new/gc` - Search and replace with confirmation (`y`/`n` for each match)
 
 ## Complex Edits Shortcut
 
