@@ -23,48 +23,48 @@ help: ## Show this help message
 	@echo ""
 
 build:
-	@test "$(IMPL_NAME)" "!=" "Rust" || \
+	@test "$(NAME)" "!=" "Rust" || \
 		(echo "Building Rust release binary..." ; \
 		 cargo build --release)
 
 install-skill: install-skill-rust ## Install Rust implementation (default)
 
-install-skill-rust: IMPL_NAME = Rust
-install-skill-rust: IMPL_SRC = target/release/interminai
+install-skill-rust: NAME = Rust
+install-skill-rust: SRC = target/release/interminai
 install-skill-rust: install-skill-impl
 
-install-skill-python: IMPL_NAME = Python
-install-skill-python: IMPL_SRC = interminai.py
+install-skill-python: NAME = Python
+install-skill-python: SRC = interminai.py
 install-skill-python: install-skill-impl
 
-install-skill-impl: INSTALL_DST = agent/skills
+install-skill-impl: DST = agent/skills
 install-skill-impl: install-atomic
-	@echo "Installed $(IMPL_NAME) version to agent/skills/interminai"
+	@echo "Installed $(NAME) version to agent/skills/interminai"
 	@echo "(accessible via .claude/skills and .codex/skills symlinks)"
 
 install-claude: install-claude-rust ## Install Rust skill to ~/.claude/skills/ for Claude Code
 
-install-claude-rust: IMPL_NAME = Rust
-install-claude-rust: IMPL_SRC = target/release/interminai
-install-claude-rust: INSTALL_DST = ~/.claude/skills
+install-claude-rust: NAME = Rust
+install-claude-rust: SRC = target/release/interminai
+install-claude-rust: DST = ~/.claude/skills
 install-claude-rust: install-atomic
 	@echo "Installed Rust skill to ~/.claude/skills/interminai"
 
-install-claude-python: IMPL_NAME = Python
-install-claude-python: IMPL_SRC = interminai.py
-install-claude-python: INSTALL_DST = ~/.claude/skills
+install-claude-python: NAME = Python
+install-claude-python: SRC = interminai.py
+install-claude-python: DST = ~/.claude/skills
 install-claude-python: install-atomic
 	@echo "Installed Python skill to ~/.claude/skills/interminai"
 
 install-atomic: build
-	@test -n "$(INSTALL_DST)"
-	@mkdir -p $(INSTALL_DST)-backup
-	@mkdir -p $(INSTALL_DST)/interminai
-	@TMPDIR=$$(mktemp -d $(INSTALL_DST)-backup/XXXXXX) && \
+	@test -n "$(DST)"
+	@mkdir -p $(DST)-backup
+	@mkdir -p $(DST)/interminai
+	@TMPDIR=$$(mktemp -d $(DST)-backup/XXXXXX) && \
 		cp -r skills/interminai "$$TMPDIR/interminai" && \
-		test -n "$(IMPL_SRC)" && cp $(IMPL_SRC) "$$TMPDIR/interminai/scripts/interminai"; \
-		mkdir -p $(INSTALL_DST) && \
-		mv --exchange "$$TMPDIR/interminai" $(INSTALL_DST)
+		test -n "$(SRC)" && cp $(SRC) "$$TMPDIR/interminai/scripts/interminai"; \
+		mkdir -p $(DST) && \
+		mv --exchange "$$TMPDIR/interminai" $(DST)
 
 test: test-rust test-python test-skill
 
