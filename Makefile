@@ -38,7 +38,6 @@ install-skill-python: IMPL_SRC = interminai.py
 install-skill-python: install-skill-impl
 
 install-skill-impl: INSTALL_DST = agent/skills
-install-skill-impl: INSTALL_BACKUP = agent/skills-backup
 install-skill-impl: install-atomic
 	@echo "Installed $(IMPL_NAME) version to agent/skills/interminai"
 	@echo "(accessible via .claude/skills and .codex/skills symlinks)"
@@ -48,23 +47,20 @@ install-claude: install-claude-rust ## Install Rust skill to ~/.claude/skills/ f
 install-claude-rust: IMPL_NAME = Rust
 install-claude-rust: IMPL_SRC = target/release/interminai
 install-claude-rust: INSTALL_DST = ~/.claude/skills
-install-claude-rust: INSTALL_BACKUP = ~/.claude/skills-backup
 install-claude-rust: install-atomic
 	@echo "Installed Rust skill to ~/.claude/skills/interminai"
 
 install-claude-python: IMPL_NAME = Python
 install-claude-python: IMPL_SRC = interminai.py
 install-claude-python: INSTALL_DST = ~/.claude/skills
-install-claude-python: INSTALL_BACKUP = ~/.claude/skills-backup
 install-claude-python: install-atomic
 	@echo "Installed Python skill to ~/.claude/skills/interminai"
 
 install-atomic: build
 	@test -n "$(INSTALL_DST)"
-	@test -n "$(INSTALL_BACKUP)"
-	@mkdir -p $(INSTALL_BACKUP)
+	@mkdir -p $(INSTALL_DST)-backup
 	@mkdir -p $(INSTALL_DST)/interminai
-	@TMPDIR=$$(mktemp -d $(INSTALL_BACKUP)/XXXXXX) && \
+	@TMPDIR=$$(mktemp -d $(INSTALL_DST)-backup/XXXXXX) && \
 		cp -r skills/interminai "$$TMPDIR/interminai" && \
 		test -n "$(IMPL_SRC)" && cp $(IMPL_SRC) "$$TMPDIR/interminai/scripts/interminai"; \
 		mkdir -p $(INSTALL_DST) && \
