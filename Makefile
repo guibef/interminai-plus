@@ -1,4 +1,4 @@
-.PHONY: help install-skill install-skill-rust install-skill-python install-skill-impl install-claude install-atomic build test-rust test-python test-skill demo demo-gdb clean
+.PHONY: help install-skill install-skill-rust install-skill-python install-skill-impl install-claude install-claude-rust install-claude-python install-atomic build test-rust test-python test-skill demo demo-gdb clean
 
 .DEFAULT_GOAL := help
 
@@ -8,7 +8,9 @@ help: ## Show this help message
 	@echo "  make install-skill        - Install Rust implementation (default)"
 	@echo "  make install-skill-rust   - Install Rust implementation to skills/interminai/scripts/"
 	@echo "  make install-skill-python - Install Python implementation to skills/interminai/scripts/"
-	@echo "  make install-claude       - Install Rust skill to ~/.claude/skills/ for Claude Code"
+	@echo "  make install-claude       - Install Rust skill to ~/.claude/skills/ for Claude Code (default)"
+	@echo "  make install-claude-rust  - Install Rust skill to ~/.claude/skills/ for Claude Code"
+	@echo "  make install-claude-python - Install Python skill to ~/.claude/skills/ for Claude Code"
 	@echo "  make test                 - Run all tests"
 	@echo "  make test-rust            - Run tests with Rust implementation"
 	@echo "  make test-python          - Run tests with Python implementation"
@@ -43,13 +45,25 @@ install-skill-impl: install-atomic
 	@echo "Installed $(IMPL_NAME) version to agent/skills/interminai"
 	@echo "(accessible via .claude/skills and .codex/skills symlinks)"
 
-install-claude: IMPL_SRC = target/release/interminai
-install-claude: INSTALL_SRC = skills/interminai
-install-claude: INSTALL_DST = ~/.claude/skills
-install-claude: INSTALL_BACKUP = ~/.claude/skills-backup
-install-claude: INSTALL_NAME = ~/.claude/skills/interminai
-install-claude: install-atomic
-	@echo "Installed skill to ~/.claude/skills/interminai"
+install-claude: install-claude-rust ## Install Rust skill to ~/.claude/skills/ for Claude Code
+
+install-claude-rust: IMPL_NAME = Rust
+install-claude-rust: IMPL_SRC = target/release/interminai
+install-claude-rust: INSTALL_SRC = skills/interminai
+install-claude-rust: INSTALL_DST = ~/.claude/skills
+install-claude-rust: INSTALL_BACKUP = ~/.claude/skills-backup
+install-claude-rust: INSTALL_NAME = ~/.claude/skills/interminai
+install-claude-rust: install-atomic
+	@echo "Installed Rust skill to ~/.claude/skills/interminai"
+
+install-claude-python: IMPL_NAME = Python
+install-claude-python: IMPL_SRC = interminai.py
+install-claude-python: INSTALL_SRC = skills/interminai
+install-claude-python: INSTALL_DST = ~/.claude/skills
+install-claude-python: INSTALL_BACKUP = ~/.claude/skills-backup
+install-claude-python: INSTALL_NAME = ~/.claude/skills/interminai
+install-claude-python: install-atomic
+	@echo "Installed Python skill to ~/.claude/skills/interminai"
 
 install-atomic: build
 	@test -n "$(INSTALL_SRC)"
