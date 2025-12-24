@@ -26,29 +26,25 @@ build:
 
 install-skill: install-skill-rust ## Install Rust implementation (default)
 
-install-skill-rust: build
-	@echo "Installing Rust implementation to agent/skills/..."
-	@mkdir -p agent/skills-backup
-	@mkdir -p agent/skills/interminai
-	@TMPDIR=$$(mktemp -d agent/skills-backup/XXXXXX) && \
-		cp -r skills/interminai "$$TMPDIR/interminai" && \
-		cp target/release/interminai "$$TMPDIR/interminai/scripts/interminai" && \
-		mkdir -p agent/skills && \
-		mv --exchange "$$TMPDIR/interminai" agent/skills && \
-		echo "Installed Rust version to agent/skills/interminai" && \
-		echo "(accessible via .claude/skills and .codex/skills symlinks)"
+install-skill-rust: IMPL_NAME = Rust
+install-skill-rust: IMPL_SRC = target/release/interminai
+install-skill-rust: build install-skill-impl
 
-install-skill-python:
-	@echo "Installing Python implementation to agent/skills/..."
+install-skill-python: IMPL_NAME = Python
+install-skill-python: IMPL_SRC = interminai.py
+install-skill-python: install-skill-impl
+
+install-skill-impl:
+	@echo "Installing $(IMPL_NAME) implementation to agent/skills/..."
 	@mkdir -p agent/skills-backup
 	@mkdir -p agent/skills/interminai
 	@TMPDIR=$$(mktemp -d agent/skills-backup/XXXXXX) && \
 		cp -r skills/interminai "$$TMPDIR/interminai" && \
-		cp interminai.py "$$TMPDIR/interminai/scripts/interminai" && \
+		cp $(IMPL_SRC) "$$TMPDIR/interminai/scripts/interminai" && \
 		chmod +x "$$TMPDIR/interminai/scripts/interminai" && \
 		mkdir -p agent/skills && \
-		mv --exchange "$$TMPDIR/interminai" agent/skills 2>/dev/null && \
-		echo "Installed Python version to agent/skills/interminai" && \
+		mv --exchange "$$TMPDIR/interminai" agent/skills && \
+		echo "Installed $(IMPL_NAME) version to agent/skills/interminai" && \
 		echo "(accessible via .claude/skills and .codex/skills symlinks)"
 
 install-claude: install-skill ## Install skill to ~/.claude/skills/ for Claude Code
