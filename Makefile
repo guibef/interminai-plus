@@ -23,7 +23,7 @@ help: ## Show this help message
 	@echo ""
 
 build:
-	@test "$(IMPL_SRC)" "!=" "target/release/interminai" || \
+	@test "$(IMPL_NAME)" "!=" "Rust" || \
 		(echo "Building Rust release binary..." ; \
 		 cargo build --release)
 
@@ -37,7 +37,6 @@ install-skill-python: IMPL_NAME = Python
 install-skill-python: IMPL_SRC = interminai.py
 install-skill-python: install-skill-impl
 
-install-skill-impl: INSTALL_SRC = skills/interminai
 install-skill-impl: INSTALL_DST = agent/skills
 install-skill-impl: INSTALL_BACKUP = agent/skills-backup
 install-skill-impl: INSTALL_NAME = agent/skills/interminai
@@ -49,7 +48,6 @@ install-claude: install-claude-rust ## Install Rust skill to ~/.claude/skills/ f
 
 install-claude-rust: IMPL_NAME = Rust
 install-claude-rust: IMPL_SRC = target/release/interminai
-install-claude-rust: INSTALL_SRC = skills/interminai
 install-claude-rust: INSTALL_DST = ~/.claude/skills
 install-claude-rust: INSTALL_BACKUP = ~/.claude/skills-backup
 install-claude-rust: INSTALL_NAME = ~/.claude/skills/interminai
@@ -58,7 +56,6 @@ install-claude-rust: install-atomic
 
 install-claude-python: IMPL_NAME = Python
 install-claude-python: IMPL_SRC = interminai.py
-install-claude-python: INSTALL_SRC = skills/interminai
 install-claude-python: INSTALL_DST = ~/.claude/skills
 install-claude-python: INSTALL_BACKUP = ~/.claude/skills-backup
 install-claude-python: INSTALL_NAME = ~/.claude/skills/interminai
@@ -66,14 +63,13 @@ install-claude-python: install-atomic
 	@echo "Installed Python skill to ~/.claude/skills/interminai"
 
 install-atomic: build
-	@test -n "$(INSTALL_SRC)"
 	@test -n "$(INSTALL_DST)"
 	@test -n "$(INSTALL_BACKUP)"
 	@test -n "$(INSTALL_NAME)"
 	@mkdir -p $(INSTALL_BACKUP)
 	@mkdir -p $(INSTALL_NAME)
 	@TMPDIR=$$(mktemp -d $(INSTALL_BACKUP)/XXXXXX) && \
-		cp -r $(INSTALL_SRC) "$$TMPDIR/interminai" && \
+		cp -r skills/interminai "$$TMPDIR/interminai" && \
 		test -n "$(IMPL_SRC)" && cp $(IMPL_SRC) "$$TMPDIR/interminai/scripts/interminai"; \
 		mkdir -p $(INSTALL_DST) && \
 		mv --exchange "$$TMPDIR/interminai" $(INSTALL_DST)
