@@ -35,6 +35,8 @@ install-skill-python: IMPL_SRC = interminai.py
 install-skill-python: install-skill-impl
 
 install-skill-impl:
+	@test -n "$(IMPL_NAME)" || { echo "Error: IMPL_NAME not set"; exit 1; }
+	@test -n "$(IMPL_SRC)" || { echo "Error: IMPL_SRC not set"; exit 1; }
 	@echo "Installing $(IMPL_NAME) implementation to agent/skills/..."
 	@mkdir -p agent/skills-backup
 	@mkdir -p agent/skills/interminai
