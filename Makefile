@@ -42,13 +42,13 @@ install-skill-impl: install-atomic
 	@echo "Installed $(IMPL_NAME) version to agent/skills/interminai"
 	@echo "(accessible via .claude/skills and .codex/skills symlinks)"
 
-install-claude: INSTALL_SRC = agent/skills/interminai
+install-claude: IMPL_SRC = target/release/interminai
+install-claude: INSTALL_SRC = skills/interminai
 install-claude: INSTALL_DST = ~/.claude/skills
 install-claude: INSTALL_BACKUP = ~/.claude/skills-backup
 install-claude: INSTALL_NAME = ~/.claude/skills/interminai
-install-claude: install-skill install-atomic
+install-claude: build install-atomic
 	@echo "Installed skill to ~/.claude/skills/interminai"
-	@echo "Old version moved to $$TMPDIR/interminai"
 
 install-atomic:
 	@test -n "$(INSTALL_SRC)"
