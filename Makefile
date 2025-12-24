@@ -21,7 +21,9 @@ help: ## Show this help message
 	@echo ""
 
 build:
-	@test "$(IMPL_SRC)" = "target/release/interminai" && echo "Building Rust release binary..." && cargo build --release; true
+	@test "$(IMPL_SRC)" "!=" "target/release/interminai" || \
+		(echo "Building Rust release binary..." ; \
+		 cargo build --release)
 
 install-skill: install-skill-rust ## Install Rust implementation (default)
 
