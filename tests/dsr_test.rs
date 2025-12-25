@@ -7,12 +7,17 @@ use common::interminai_bin;
 
 struct TestEnv {
     socket: String,
+    _temp_dir: tempfile::TempDir,  // Keep temp dir alive
 }
 
 impl TestEnv {
     fn new() -> Self {
-        let socket = format!("/tmp/interminai-dsr-test-{}.sock", std::process::id());
-        Self { socket }
+        let temp_dir = tempfile::TempDir::new().expect("Failed to create temp dir");
+        let socket = temp_dir.path().join("test.sock").to_string_lossy().to_string();
+        Self { 
+            socket,
+            _temp_dir: temp_dir,
+        }
     }
 
     fn socket(&self) -> &str {
@@ -20,11 +25,7 @@ impl TestEnv {
     }
 }
 
-impl Drop for TestEnv {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.socket);
-    }
-}
+// Drop impl no longer needed - tempfile cleans up automatically
 
 struct DaemonHandle {
     socket: String,
@@ -107,11 +108,60 @@ fn test_dsr_cursor_position_response() {
     
     // The response should be echoed back by cat
     // It will appear as visible characters since cat echoes the bytes
-    // The escape character \x1b appears as "^[" in some contexts or is shown as-is
+    // After sending "\e[6n\n", cursor should be at row 2, col 1 (the newline moved it)
     assert!(output.contains("["), "Should contain bracket from escape sequence. Got: {}", output);
     assert!(output.contains("R"), "Should contain CPR terminator 'R'. Got: {}", output);
-    assert!(output.contains("2;1R") || output.contains("1;1R"), 
-            "Should contain cursor position like '2;1R' or '1;1R'. Got: {}", output);
+    assert!(output.contains("2;1R"), 
+            "Should contain cursor position '2;1R' (row 2, col 1 after newline). Got: {}", output);
+    
+    daemon.stop();
+}
+
+#[test]
+fn test_dsr_with_vim_text_insertion() {
+    let env = TestEnv::new();
+    
+    // Start vim without a file (opens empty buffer)
+    let daemon = DaemonHandle::spawn_with_socket(
+        &env.socket(),
+        &["vim", "-u", "NONE", "-c", "set nocp"]  // -u NONE = no vimrc, nocp = no compatible mode
+    );
+    
+    thread::sleep(Duration::from_millis(1000));  // Give vim time to start
+    
+    // Insert some text: press 'i' to enter insert mode, type text, ESC to exit
+    Command::new(interminai_bin())
+        .arg("input")
+        .arg("--socket")
+        .arg(&env.socket())
+        .arg("--text")
+        .arg("iHello World\\nLine 2\\nLine 3\\x1b")  // i = insert mode, text, ESC
+        .assert()
+        .success();
+    
+    thread::sleep(Duration::from_millis(300));
+    
+    // Move to beginning and show position
+    Command::new(interminai_bin())
+        .arg("input")
+        .arg("--socket")
+        .arg(&env.socket())
+        .arg("--text")
+        .arg("gg\\x07")  // gg = go to top, Ctrl-G = show position
+        .assert()
+        .success();
+    
+    thread::sleep(Duration::from_millis(300));
+    
+    let output = get_output(&env.socket());
+    
+    // Should show the text we typed
+    assert!(output.contains("Hello World"), "Should contain 'Hello World'. Got: {}", output);
+    assert!(output.contains("Line 2"), "Should contain 'Line 2'. Got: {}", output);
+    
+    // Ctrl-G should show position info (line 1)
+    assert!(output.contains("line 1") || output.contains("1,1"), 
+            "Should show position at line 1. Got: {}", output);
     
     daemon.stop();
 }
