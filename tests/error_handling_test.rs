@@ -1,19 +1,15 @@
 use assert_cmd::Command;
 use std::time::Duration;
-use tempfile::TempDir;
 
 mod common;
 use common::interminai_bin;
 
 #[test]
 fn test_nonexistent_socket_output() {
-    let temp_dir = TempDir::new().unwrap();
-    let nonexistent = temp_dir.path().join("nonexistent.sock");
-    
     Command::new(interminai_bin())
         .arg("output")
         .arg("--socket")
-        .arg(nonexistent.to_str().unwrap())
+        .arg("/tmp/this-socket-does-not-exist.sock")
         .timeout(Duration::from_secs(2))
         .assert()
         .failure()
@@ -22,13 +18,10 @@ fn test_nonexistent_socket_output() {
 
 #[test]
 fn test_nonexistent_socket_input() {
-    let temp_dir = TempDir::new().unwrap();
-    let nonexistent = temp_dir.path().join("nonexistent.sock");
-    
     Command::new(interminai_bin())
         .arg("input")
         .arg("--socket")
-        .arg(nonexistent.to_str().unwrap())
+        .arg("/tmp/this-socket-does-not-exist.sock")
         .write_stdin("test")
         .timeout(Duration::from_secs(2))
         .assert()
@@ -38,13 +31,10 @@ fn test_nonexistent_socket_input() {
 
 #[test]
 fn test_nonexistent_socket_running() {
-    let temp_dir = TempDir::new().unwrap();
-    let nonexistent = temp_dir.path().join("nonexistent.sock");
-    
     Command::new(interminai_bin())
         .arg("running")
         .arg("--socket")
-        .arg(nonexistent.to_str().unwrap())
+        .arg("/tmp/this-socket-does-not-exist.sock")
         .timeout(Duration::from_secs(2))
         .assert()
         .failure()
@@ -53,13 +43,10 @@ fn test_nonexistent_socket_running() {
 
 #[test]
 fn test_nonexistent_socket_stop() {
-    let temp_dir = TempDir::new().unwrap();
-    let nonexistent = temp_dir.path().join("nonexistent.sock");
-    
     Command::new(interminai_bin())
         .arg("stop")
         .arg("--socket")
-        .arg(nonexistent.to_str().unwrap())
+        .arg("/tmp/this-socket-does-not-exist.sock")
         .timeout(Duration::from_secs(2))
         .assert()
         .failure()
@@ -68,13 +55,10 @@ fn test_nonexistent_socket_stop() {
 
 #[test]
 fn test_invalid_terminal_size() {
-    let temp_dir = TempDir::new().unwrap();
-    let socket = temp_dir.path().join("test.sock");
-    
     Command::new(interminai_bin())
         .arg("start")
         .arg("--socket")
-        .arg(socket.to_str().unwrap())
+        .arg("/tmp/test-invalid-size.sock")
         .arg("--size")
         .arg("notasize")
         .arg("--")

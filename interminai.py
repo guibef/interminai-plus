@@ -69,7 +69,7 @@ class DebugBuffer:
 class Screen:
     """Simple terminal emulator screen buffer"""
 
-    def __init__(self, rows, cols, color_enabled=False, master_fd=None):
+    def __init__(self, rows, cols):
         self.rows = rows
         self.cols = cols
         self.cells = [[' ' for _ in range(cols)] for _ in range(rows)]
@@ -77,22 +77,11 @@ class Screen:
         self.cursor_col = 0
         self.last_char = ' '
         self.debug_buffer = DebugBuffer()
-        self.color_enabled = color_enabled
-        self.master_fd = master_fd
 
     def scroll_up(self):
         """Scroll screen up by one line"""
         self.cells.pop(0)
         self.cells.append([' ' for _ in range(self.cols)])
-
-    def write_to_pty(self, data):
-        """Write data to the PTY master fd"""
-        if self.master_fd is not None:
-            try:
-                os.write(self.master_fd, data)
-            except (OSError, IOError):
-                pass  # Ignore write errors
-
 
     def print_char(self, c):
         """Print a character at cursor position"""
@@ -228,15 +217,6 @@ class Screen:
                 self.print_char(c)
         elif action == 'm':  # SGR - intentionally ignored (colors/attributes)
             pass
-        elif action == 'n':  # DSR - Device Status Report
-            # Note: So far no application breakage was reported due to lack of DSR.
-            # However, we implement it for completeness as it's part of the standard terminal protocol.
-            # Implementation complexity: Requires passing PTY fd to Screen.
-            mode = params[0] if params else 0
-            if mode == 6:  # CPR - Cursor Position Report
-                # Respond with ESC[{row};{col}R (1-based)
-                response = f'\x1b[{self.cursor_row + 1};{self.cursor_col + 1}R'
-                self.write_to_pty(response.encode('utf-8'))
         else:
             # Unhandled CSI sequence - record it
             if raw_bytes:
@@ -344,11 +324,11 @@ class Screen:
 class DaemonState:
     """State for the daemon process"""
 
-    def __init__(self, master_fd, child_pid, socket_path, rows, cols, socket_was_auto_generated, color_enabled):
+    def __init__(self, master_fd, child_pid, socket_path, rows, cols, socket_was_auto_generated):
         self.master_fd = master_fd
         self.child_pid = child_pid
         self.socket_path = socket_path
-        self.screen = Screen(rows, cols, color_enabled, master_fd)
+        self.screen = Screen(rows, cols)
         self.exit_code = None
         self.should_shutdown = False
         self.socket_was_auto_generated = socket_was_auto_generated
@@ -419,7 +399,7 @@ def cmd_start(args):
         print(f"PID: {os.getpid()}")
         print(f"Auto-generated: {socket_was_auto_generated}")
         sys.stdout.flush()
-        run_daemon(socket_path, cols, rows, args.command, socket_was_auto_generated, args.color)
+        run_daemon(socket_path, cols, rows, args.command, socket_was_auto_generated)
     else:
         # Daemonize (double fork)
         pid = os.fork()
@@ -457,10 +437,10 @@ def cmd_start(args):
             os.close(devnull)
 
         # Run daemon
-        run_daemon(socket_path, cols, rows, args.command, socket_was_auto_generated, args.color)
+        run_daemon(socket_path, cols, rows, args.command, socket_was_auto_generated)
 
 
-def run_daemon(socket_path, cols, rows, command, socket_was_auto_generated, color_enabled):
+def run_daemon(socket_path, cols, rows, command, socket_was_auto_generated):
     """Run the daemon process"""
     # Create PTY
     master_fd, slave_fd = pty.openpty()
@@ -503,7 +483,7 @@ def run_daemon(socket_path, cols, rows, command, socket_was_auto_generated, colo
     os.close(slave_fd)
 
     # Create state
-    state = DaemonState(master_fd, child_pid, socket_path, rows, cols, socket_was_auto_generated, color_enabled)
+    state = DaemonState(master_fd, child_pid, socket_path, rows, cols, socket_was_auto_generated)
 
     # Create Unix socket
     if os.path.exists(socket_path):
@@ -729,9 +709,8 @@ def handle_resize(data, state):
     try:
         set_window_size(state.master_fd, rows, cols)
 
-        # Resize screen buffer (preserve color_enabled)
-        color_enabled = state.screen.color_enabled
-        state.screen = Screen(rows, cols, color_enabled)
+        # Resize screen buffer
+        state.screen = Screen(rows, cols)
 
         return {'status': 'ok', 'data': {'message': f'Resized to {cols}x{rows}'}}
     except Exception as e:
@@ -1026,7 +1005,6 @@ def main():
     start_parser.add_argument('--socket', help='Socket path')
     start_parser.add_argument('--size', default='80x24', help='Terminal size (COLSxROWS)')
     start_parser.add_argument('--no-daemon', action='store_true', help='Run in foreground')
-    start_parser.add_argument('--color', action='store_true', help='Enable SGR (color/style) support')
     start_parser.add_argument('command', nargs='+', help='Command to run')
     start_parser.set_defaults(func=cmd_start)
 

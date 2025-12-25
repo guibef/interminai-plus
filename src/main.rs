@@ -49,10 +49,6 @@ enum Commands {
         #[arg(long)]
         no_daemon: bool,
 
-        /// Enable SGR (color/style) support
-        #[arg(long)]
-        color: bool,
-
         /// Command to run
         #[arg(required = true, last = true)]
         command: Vec<String>,
@@ -233,16 +229,14 @@ struct Screen {
     cursor_col: usize,
     last_char: char,
     debug_buffer: DebugBuffer,
-    color_enabled: bool,
-    master_fd: Option<Arc<OwnedFd>>,
 }
 
 impl Screen {
-    fn new(rows: usize, cols: usize, color_enabled: bool) -> Self {
-        Self::with_debug_buffer(rows, cols, 10, color_enabled)
+    fn new(rows: usize, cols: usize) -> Self {
+        Self::with_debug_buffer(rows, cols, 10)
     }
 
-    fn with_debug_buffer(rows: usize, cols: usize, debug_buffer_size: usize, color_enabled: bool) -> Self {
+    fn with_debug_buffer(rows: usize, cols: usize, debug_buffer_size: usize) -> Self {
         Screen {
             rows,
             cols,
@@ -251,18 +245,6 @@ impl Screen {
             cursor_col: 0,
             last_char: ' ',
             debug_buffer: DebugBuffer::new(debug_buffer_size),
-            color_enabled,
-            master_fd: None,
-        }
-    }
-
-    fn set_master_fd(&mut self, fd: Arc<OwnedFd>) {
-        self.master_fd = Some(fd);
-    }
-
-    fn write_to_pty(&self, data: &[u8]) {
-        if let Some(ref fd) = self.master_fd {
-            let _ = nix::unistd::write(fd.as_raw_fd(), data);
         }
     }
 
@@ -480,36 +462,6 @@ impl Perform for Screen {
                     }
                 }
             }
-            'm' => {
-                // SGR (Select Graphic Rendition) - color and style codes
-                if self.color_enabled {
-                    // Reconstruct the escape sequence and print it
-                    let mut sgr = String::from("\x1b[");
-                    
-                    if params.is_empty() {
-                        sgr.push('0');
-                    } else {
-                        let param_strs: Vec<String> = params
-                            .iter()
-                            .map(|subparams| {
-                                subparams
-                                    .iter()
-                                    .map(|p| p.to_string())
-                                    .collect::<Vec<_>>()
-                                    .join(":")
-                            })
-                            .collect();
-                        sgr.push_str(&param_strs.join(";"));
-                    }
-                    sgr.push('m');
-                    
-                    // Print each character of the escape sequence
-                    for c in sgr.chars() {
-                        self.print(c);
-                    }
-                }
-                // If color_enabled is false, ignore the SGR sequence
-            }
             'S' => {
                 // Scroll Up (SU) - scroll content up N lines
                 let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
@@ -543,20 +495,8 @@ impl Perform for Screen {
                 // Clear Tab Stop (tbc) - mode 3 clears all, mode 0 clears current
                 // We use fixed 8-column tabs, so ignore
             }
-            'n' => {
-                // DSR (Device Status Report)
-                // Note: So far no application breakage was reported due to lack of DSR.
-                // However, we implement it for completeness as it's part of the standard terminal protocol.
-                // Implementation complexity: Requires Arc<OwnedFd> for thread-safe PTY access.
-                let mode = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(0);
-                if mode == 6 {
-                    // CPR (Cursor Position Report) - report cursor position
-                    // Format: ESC [ {row} ; {col} R
-                    // Note: cursor position is 1-indexed in the response
-                    let response = format!("\x1b[{};{}R", self.cursor_row + 1, self.cursor_col + 1);
-                    self.write_to_pty(response.as_bytes());
-                }
-                // Other DSR modes are ignored
+            'm' => {
+                // SGR - ignore (colors/attributes) - intentionally not logged to debug buffer
             }
             _ => {
                 // Record unhandled CSI sequence
@@ -611,7 +551,7 @@ impl Perform for Screen {
 }
 
 struct DaemonState {
-    master_fd: Arc<OwnedFd>,
+    master_fd: OwnedFd,
     child_pid: Pid,
     screen: Screen,
     parser: vte::Parser,
@@ -748,7 +688,7 @@ fn auto_generate_socket_path() -> Result<String> {
     Ok(socket_path)
 }
 
-fn cmd_start(socket: Option<String>, size: String, daemon: bool, color: bool, command: Vec<String>) -> Result<()> {
+fn cmd_start(socket: Option<String>, size: String, daemon: bool, command: Vec<String>) -> Result<()> {
     let socket_was_auto_generated = socket.is_none();
     let socket_path = match socket {
         Some(path) => path,
@@ -763,7 +703,7 @@ fn cmd_start(socket: Option<String>, size: String, daemon: bool, color: bool, co
         println!("PID: {}", std::process::id());
         println!("Auto-generated: {}", socket_was_auto_generated);
 
-        return run_daemon(socket_path, socket_was_auto_generated, rows, cols, color, command);
+        return run_daemon(socket_path, socket_was_auto_generated, rows, cols, command);
     }
 
     // Double-fork to properly daemonize
@@ -826,7 +766,7 @@ fn cmd_start(socket: Option<String>, size: String, daemon: bool, color: bool, co
                     }
 
                     // Run daemon
-                    if let Err(e) = run_daemon(socket_path, socket_was_auto_generated, rows, cols, color, command) {
+                    if let Err(e) = run_daemon(socket_path, socket_was_auto_generated, rows, cols, command) {
                         // Daemon errors go to /dev/null in daemon mode, which is fine
                         eprintln!("Daemon error: {}", e);
                         std::process::exit(1);
@@ -845,7 +785,7 @@ fn cmd_start(socket: Option<String>, size: String, daemon: bool, color: bool, co
     }
 }
 
-fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, cols: u16, color: bool, command: Vec<String>) -> Result<()> {
+fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, cols: u16, command: Vec<String>) -> Result<()> {
     // Create PTY
     let winsize = Winsize {
         ws_row: rows,
@@ -877,14 +817,10 @@ fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, c
                 .context("Failed to set PTY non-blocking")?;
 
             // Create state
-            let master_fd = Arc::new(pty.master);
-            let mut screen = Screen::new(rows as usize, cols as usize, color);
-            screen.set_master_fd(master_fd.clone());
-            
             let state = Arc::new(Mutex::new(DaemonState {
-                master_fd,
+                master_fd: pty.master,
                 child_pid: Pid::from_raw(child),
-                screen,
+                screen: Screen::new(rows as usize, cols as usize),
                 parser: vte::Parser::new(),
                 exit_code: None,
                 socket_path: socket_path.clone(),
@@ -1206,9 +1142,7 @@ fn handle_resize(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Re
 
     // Update screen buffer dimensions
     // Create new screen with new dimensions
-    let color_enabled = state.screen.color_enabled;
-    let mut new_screen = Screen::new(rows as usize, cols as usize, color_enabled);
-    new_screen.set_master_fd(state.master_fd.clone());
+    let mut new_screen = Screen::new(rows as usize, cols as usize);
 
     // Copy old content to new screen (preserve as much as possible)
     let old_screen = &state.screen;
@@ -1411,8 +1345,8 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Start { socket, size, no_daemon, color, command } => {
-            cmd_start(socket, size, !no_daemon, color, command)?;
+        Commands::Start { socket, size, no_daemon, command } => {
+            cmd_start(socket, size, !no_daemon, command)?;
         }
         Commands::Input { socket, text } => {
             // Use --text if provided, otherwise read from stdin
