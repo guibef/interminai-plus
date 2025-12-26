@@ -1,4 +1,10 @@
-.PHONY: help install-skill install-skill-rust install-skill-python install-skill-impl install-claude install-claude-rust install-claude-python install-atomic build test-rust test-python test-skill demo demo-gdb clean
+.PHONY: help build clean
+.PHONY: install-skill install-skill-rust install-skill-python install-skill-impl install-atomic
+.PHONY: install-claude install-claude-rust install-claude-python
+.PHONY: install-codex install-codex-rust install-codex-python
+.PHONY: install-tool-rust install-tool-python
+.PHONY: test test-rust test-python test-skill
+.PHONY: demo demo-gdb
 
 .DEFAULT_GOAL := help
 
@@ -11,6 +17,9 @@ help: ## Show this help message
 	@echo "  make install-claude       - Install Rust skill to ~/.claude/skills/ for Claude Code (default)"
 	@echo "  make install-claude-rust  - Install Rust skill to ~/.claude/skills/ for Claude Code"
 	@echo "  make install-claude-python - Install Python skill to ~/.claude/skills/ for Claude Code"
+	@echo "  make install-codex       - Install Rust skill to ~/.claude/skills/ for Claude Code (default)"
+	@echo "  make install-codex-rust  - Install Rust skill to ~/.claude/skills/ for Claude Code"
+	@echo "  make install-codex-python - Install Python skill to ~/.claude/skills/ for Claude Code"
 	@echo "  make test                 - Run all tests"
 	@echo "  make test-rust            - Run tests with Rust implementation"
 	@echo "  make test-python          - Run tests with Python implementation"
@@ -43,15 +52,28 @@ install-skill-impl: install-atomic
 
 install-claude: install-claude-rust ## Install Rust skill to ~/.claude/skills/ for Claude Code
 
-install-claude-rust: NAME = Rust
-install-claude-rust: SRC = target/release/interminai
-install-claude-rust: DST = ~/.claude/skills
-install-claude-rust: install-atomic
+install-tool-rust: NAME = Rust
+install-tool-rust: SRC = target/release/interminai
+install-tool-rust: DST = ~/.${TOOL}/skills
+install-tool-rust: install-atomic
 
-install-claude-python: NAME = Python
-install-claude-python: SRC = interminai.py
-install-claude-python: DST = ~/.claude/skills
-install-claude-python: install-atomic
+install-tool-python: NAME = Python
+install-tool-python: SRC = interminai.py
+install-tool-python: DST = ~/.${TOOL}/skills
+install-tool-python: install-atomic
+
+
+install-claude-rust: TOOL = claude
+install-claude-rust: install-tool-rust
+install-claude-python: TOOL = claude
+install-claude-python: install-tool-python
+
+install-codex: install-codex-rust ## Install Rust skill to ~/.codex/skills/ for Codex
+
+install-codex-rust: TOOL = codex
+install-codex-rust: install-tool-rust
+install-codex-python: TOOL = codex
+install-codex-python: install-tool-python
 
 install-atomic: build
 	@test -n "$(DST)"
