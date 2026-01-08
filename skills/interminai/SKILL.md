@@ -88,6 +88,21 @@ For complex multi-line edits, another option is to edit outside vim:
 
 This avoids tricky vim navigation for large or intricate changes.
 
+However, if editing is going to use sed anyway, using :%s/old/new/gc within vim
+is more robust and more powerful as it shows you each change.
+
+## newline/enter hint
+
+For git add -i/-p, the menu shown is not interactive, an action does not
+take effect until you press enter. For example:
+
+- Stage this hunk [y,n,q,a,d,K,j,J,g,/,e,?]?
+
+Actually expects y\n and will not take effect until the newline is input.
+
+If you observe a tool is waiting for \n once it is safe to assume
+it will be waiting for it next time, too.
+
 ## Git Example
 
 ```bash
