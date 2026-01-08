@@ -1,6 +1,6 @@
 ---
 name: interminai
-description: Control interactive terminal applications like vim, git rebase -i, git add -i, apt, rclone config, and TUI apps. Use when you need to interact with applications that require keyboard input, show prompts, menus, or have full-screen interfaces. Also use when commands fail or hang with errors like "Input is not a terminal" or "Output is not a terminal".
+description: Control interactive terminal applications like vim, git rebase -i, git add -i, apt, rclone config, and TUI apps. Even another CLI LLM. Use when you need to interact with applications that require keyboard input, show prompts, menus, or have full-screen interfaces. Also use when commands fail or hang with errors like "Input is not a terminal" or "Output is not a terminal".
 allowed-tools: Shell
 license: See LICENSE file
 metadata:
@@ -51,6 +51,7 @@ rm "$SOCKET"; rmdir `dirname "$SOCKET"`
 ## Key Best Practices
 
 1. **Unique sockets**: Use `` SOCKET=`mktemp -d /tmp/interminai-XXXXXX`/sock ``
+    Alernatively, use sockets in the current directory: ./interminai-project-sock
 2. **Always clean up**: `stop`, then `rm` the socket directory
 3. **Check output after each input** - don't blindly chain commands
 4. **Add delays**: `sleep 0.2` after input for processing
