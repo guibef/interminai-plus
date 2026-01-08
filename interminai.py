@@ -221,11 +221,19 @@ class Screen:
             pass
         elif action == 'n':  # Device Status Report (DSR)
             mode = params[0] if params else 0
-            if mode == 6:
+            if mode == 5:
+                # Report device status: ESC [ 0 n (ready, no malfunction)
+                self.pending_responses.append(b'\x1b[0n')
+            elif mode == 6:
                 # Report cursor position: ESC [ row ; col R (1-based)
                 response = f'\x1b[{self.cursor_row + 1};{self.cursor_col + 1}R'
                 self.pending_responses.append(response.encode('utf-8'))
-            # Other modes (5 = device status) are ignored
+        elif action == 'c':  # Primary Device Attributes (DA1)
+            # Programs query terminal capabilities with ESC[c or ESC[0c
+            # Respond as VT100 with AVO: ESC[?1;2c
+            mode = params[0] if params else 0
+            if mode == 0:
+                self.pending_responses.append(b'\x1b[?1;2c')
         else:
             # Unhandled CSI sequence - record it
             if raw_bytes:
