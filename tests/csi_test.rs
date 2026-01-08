@@ -204,6 +204,41 @@ fn test_csi_scroll_down() {
     daemon.stop();
 }
 
+/// Test CSI I - cursor horizontal tab forward (cht)
+#[test]
+fn test_csi_horizontal_tab() {
+    let env = TestEnv::new();
+    // Move to col 3, forward tab (to col 9), print X
+    // Tab stops: 1, 9, 17, 25... (1-based) = 0, 8, 16, 24... (0-indexed)
+    let daemon = DaemonHandle::spawn_printf(&env.socket(), "40x10", "\\e[3G\\e[IX");
+
+    let output = daemon.get_output();
+    let first_line = output.lines().next().unwrap_or("");
+    let x_pos = first_line.find('X');
+    // Forward tab from col 3 (index 2) goes to col 9 (index 8)
+    assert_eq!(x_pos, Some(8),
+        "X should be at index 8. Line: '{}'", first_line);
+
+    daemon.stop();
+}
+
+/// Test CSI I with count - multiple forward tabs
+#[test]
+fn test_csi_horizontal_tab_count() {
+    let env = TestEnv::new();
+    // Move to col 1, forward tab 2 times (to col 17), print X
+    let daemon = DaemonHandle::spawn_printf(&env.socket(), "40x10", "\\e[1G\\e[2IX");
+
+    let output = daemon.get_output();
+    let first_line = output.lines().next().unwrap_or("");
+    let x_pos = first_line.find('X');
+    // 2 forward tabs from col 1 (index 0): 0->8->16
+    assert_eq!(x_pos, Some(16),
+        "X should be at index 16 after 2 tabs. Line: '{}'", first_line);
+
+    daemon.stop();
+}
+
 /// Test CSI Z - back tab (cbt)
 #[test]
 fn test_csi_back_tab() {
