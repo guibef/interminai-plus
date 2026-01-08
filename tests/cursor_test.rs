@@ -526,3 +526,55 @@ fn test_cursor_with_multiline_output() {
 
     daemon.stop();
 }
+
+#[test]
+fn test_dsr_cursor_position_query_responds() {
+    // Test that ESC[6n (Device Status Report - cursor position query) gets a proper response
+    // This is critical for programs like codex that query cursor position on startup
+    let env = TestEnv::new();
+
+    // Use bash with a script that:
+    // 1. Sends ESC[6n to query cursor position
+    // 2. Reads the response with a timeout
+    // 3. Prints whether it got a valid response
+    // The response format is ESC[row;colR
+    let daemon = DaemonHandle::spawn_with_socket(
+        &env.socket(),
+        &["bash", "-c", r#"
+            # Query cursor position by sending ESC[6n
+            printf '\033[6n'
+            # Read response with 1 second timeout
+            # The response is ESC[row;colR
+            if read -r -t 1 -d 'R' response; then
+                echo "GOT_RESPONSE:$response"
+            else
+                echo "NO_RESPONSE"
+            fi
+            sleep 5
+        "#]
+    );
+
+    // Wait for the script to execute
+    thread::sleep(Duration::from_millis(1500));
+
+    // Get output
+    let output = Command::new(interminai_bin())
+        .arg("output")
+        .arg("--socket")
+        .arg(&env.socket())
+        .timeout(Duration::from_secs(2))
+        .output()
+        .expect("Failed to get output");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Should have received a response (not NO_RESPONSE)
+    assert!(stdout.contains("GOT_RESPONSE"),
+        "Should receive DSR response. Got: {}", stdout);
+
+    // Should NOT show NO_RESPONSE
+    assert!(!stdout.contains("NO_RESPONSE"),
+        "DSR query should not timeout. Got: {}", stdout);
+
+    daemon.stop();
+}
