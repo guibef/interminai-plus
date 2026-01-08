@@ -578,3 +578,85 @@ fn test_dsr_cursor_position_query_responds() {
 
     daemon.stop();
 }
+
+#[test]
+fn test_dsr_device_status_query_responds() {
+    // Test that ESC[5n (Device Status Report - device status) gets a proper response
+    let env = TestEnv::new();
+
+    let daemon = DaemonHandle::spawn_with_socket(
+        &env.socket(),
+        &["bash", "-c", r#"
+            # Query device status by sending ESC[5n
+            printf '\033[5n'
+            # Read response with 1 second timeout
+            # The response is ESC[0n (ready, no malfunction)
+            if read -r -t 1 -d 'n' response; then
+                echo "GOT_DSR5:$response"
+            else
+                echo "NO_RESPONSE"
+            fi
+            sleep 5
+        "#]
+    );
+
+    thread::sleep(Duration::from_millis(1500));
+
+    let output = Command::new(interminai_bin())
+        .arg("output")
+        .arg("--socket")
+        .arg(&env.socket())
+        .timeout(Duration::from_secs(2))
+        .output()
+        .expect("Failed to get output");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(stdout.contains("GOT_DSR5"),
+        "Should receive DSR 5 response. Got: {}", stdout);
+    assert!(!stdout.contains("NO_RESPONSE"),
+        "DSR 5 query should not timeout. Got: {}", stdout);
+
+    daemon.stop();
+}
+
+#[test]
+fn test_primary_device_attributes_responds() {
+    // Test that ESC[c (Primary Device Attributes) gets a proper response
+    let env = TestEnv::new();
+
+    let daemon = DaemonHandle::spawn_with_socket(
+        &env.socket(),
+        &["bash", "-c", r#"
+            # Query device attributes by sending ESC[c
+            printf '\033[c'
+            # Read response with 1 second timeout
+            # The response is ESC[?1;2c (VT100 with AVO)
+            if read -r -t 1 -d 'c' response; then
+                echo "GOT_DA:$response"
+            else
+                echo "NO_RESPONSE"
+            fi
+            sleep 5
+        "#]
+    );
+
+    thread::sleep(Duration::from_millis(1500));
+
+    let output = Command::new(interminai_bin())
+        .arg("output")
+        .arg("--socket")
+        .arg(&env.socket())
+        .timeout(Duration::from_secs(2))
+        .output()
+        .expect("Failed to get output");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(stdout.contains("GOT_DA"),
+        "Should receive DA response. Got: {}", stdout);
+    assert!(!stdout.contains("NO_RESPONSE"),
+        "DA query should not timeout. Got: {}", stdout);
+
+    daemon.stop();
+}
