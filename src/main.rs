@@ -504,12 +504,27 @@ impl Perform for Screen {
             'n' => {
                 // Device Status Report (DSR)
                 let mode = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(0);
-                if mode == 6 {
-                    // Report cursor position: ESC [ row ; col R (1-based)
-                    let response = format!("\x1b[{};{}R", self.cursor_row + 1, self.cursor_col + 1);
-                    self.pending_responses.push(response.into_bytes());
+                match mode {
+                    5 => {
+                        // Report device status: ESC [ 0 n (ready, no malfunction)
+                        self.pending_responses.push(b"\x1b[0n".to_vec());
+                    }
+                    6 => {
+                        // Report cursor position: ESC [ row ; col R (1-based)
+                        let response = format!("\x1b[{};{}R", self.cursor_row + 1, self.cursor_col + 1);
+                        self.pending_responses.push(response.into_bytes());
+                    }
+                    _ => {}
                 }
-                // Other modes (5 = device status) are ignored
+            }
+            'c' => {
+                // Primary Device Attributes (DA1)
+                // Programs query terminal capabilities with ESC[c or ESC[0c
+                // Respond as VT100 with AVO: ESC[?1;2c
+                let mode = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(0);
+                if mode == 0 {
+                    self.pending_responses.push(b"\x1b[?1;2c".to_vec());
+                }
             }
             _ => {
                 // Record unhandled CSI sequence
