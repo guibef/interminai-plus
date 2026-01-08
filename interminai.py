@@ -77,6 +77,8 @@ class Screen:
         self.cursor_col = 0
         self.last_char = ' '
         self.debug_buffer = DebugBuffer()
+        # Pending responses to be sent back to the PTY (e.g., for DSR cursor position query)
+        self.pending_responses = []
 
     def scroll_up(self):
         """Scroll screen up by one line"""
@@ -217,6 +219,13 @@ class Screen:
                 self.print_char(c)
         elif action == 'm':  # SGR - intentionally ignored (colors/attributes)
             pass
+        elif action == 'n':  # Device Status Report (DSR)
+            mode = params[0] if params else 0
+            if mode == 6:
+                # Report cursor position: ESC [ row ; col R (1-based)
+                response = f'\x1b[{self.cursor_row + 1};{self.cursor_col + 1}R'
+                self.pending_responses.append(response.encode('utf-8'))
+            # Other modes (5 = device status) are ignored
         else:
             # Unhandled CSI sequence - record it
             if raw_bytes:
@@ -356,6 +365,14 @@ class DaemonState:
                 self.screen.process_output(data)
         except (OSError, IOError):
             pass
+
+        # Send any pending responses back to the PTY (e.g., cursor position reports)
+        for response in self.screen.pending_responses:
+            try:
+                os.write(self.master_fd, response)
+            except (OSError, IOError):
+                pass
+        self.screen.pending_responses.clear()
 
 
 def parse_terminal_size(size_str):
