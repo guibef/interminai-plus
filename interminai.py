@@ -459,6 +459,10 @@ def cmd_start(args):
 
 def run_daemon(socket_path, cols, rows, command, socket_was_auto_generated):
     """Run the daemon process"""
+    # Ignore SIGPIPE in daemon - we handle socket errors via exceptions
+    # (main() sets SIGPIPE to SIG_DFL for client commands that pipe to head/less)
+    signal.signal(signal.SIGPIPE, signal.SIG_IGN)
+
     # Create PTY
     master_fd, slave_fd = pty.openpty()
 
