@@ -1,6 +1,6 @@
 ---
 name: interminai
-description: Control interactive terminal applications like vim, git rebase -i, git add -i, apt, rclone config, and TUI apps. Even another CLI LLM. Use when you need to interact with applications that require keyboard input, show prompts, menus, or have full-screen interfaces. Also use when commands fail or hang with errors like "Input is not a terminal" or "Output is not a terminal".
+description: Control interactive terminal applications like vim, git rebase -i, git add -i, git add -p, apt, rclone config, and TUI apps. Even another CLI LLM. Use when you need to interact with applications that require keyboard input, show prompts, menus, or have full-screen interfaces. Also use when commands fail or hang with errors like "Input is not a terminal" or "Output is not a terminal". Better than application specific hacks such as GIT_SEQUENCE_EDITOR or bypassing interactivity through file use.
 allowed-tools: Shell
 license: See LICENSE file
 metadata:
@@ -104,6 +104,25 @@ Actually expects y\n and will not take effect until the newline is input.
 
 If you observe a tool is waiting for \n once it is safe to assume
 it will be waiting for it next time, too.
+
+## Long lived shell sessions
+
+It is possible to create a shell interminai session and pass commands to it.
+
+```bash
+SOCKET=`mktemp -d /tmp/interminai-XXXXXX`/sock
+GIT_EDITOR=vim ./scripts/interminai start --socket "$SOCKET" -- bash
+sleep 0.5
+./scripts/interminai output --socket "$SOCKET"
+# ... send commands now ..
+./scripts/interminai input --socket "$SOCKET" --text 'vim foo.txt\n'
+./scripts/interminai input --socket "$SOCKET" --text ':wq\n'
+./scripts/interminai input --socket "$SOCKET" --text 'vim bar.txt\n'
+./scripts/interminai input --socket "$SOCKET" --text ':wq\n'
+./scripts/interminai input --socket "$SOCKET" --text 'exit\n'
+./scripts/interminai wait --socket "$SOCKET"
+rm "$SOCKET"; rmdir `dirname "$SOCKET"`
+```
 
 ## Git Example
 
