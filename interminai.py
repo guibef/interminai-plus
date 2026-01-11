@@ -766,7 +766,7 @@ def handle_client(client_sock, state):
         elif req_type == 'STOP':
             response = handle_stop(state)
         elif req_type == 'WAIT':
-            response = handle_wait(state, client_sock)
+            response = handle_wait(request.get('data'), state, client_sock)
         elif req_type == 'KILL':
             response = handle_kill(request.get('data'), state)
         elif req_type == 'RESIZE':
@@ -848,17 +848,20 @@ def handle_stop(state):
     return {'status': 'ok', 'data': {'message': 'Shutting down'}}
 
 
-def handle_wait(state, client_sock):
+def handle_wait(data, state, client_sock):
     """Handle WAIT request"""
-    # Wait for child to exit, checking for client disconnect
-    while state.exit_code is None:
+    activity_mode = data and data.get('activity', False)
+
+    # In activity mode, wait for any activity (output or exit)
+    # Otherwise, wait for child to exit
+    while True:
         # Check if client disconnected using select
         readable, _, exceptional = select.select([client_sock], [], [client_sock], 0)
         if readable or exceptional:
             # Client sent data or disconnected - check with recv
             try:
-                data = client_sock.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT)
-                if not data:
+                recv_data = client_sock.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT)
+                if not recv_data:
                     # EOF - client disconnected
                     return {'status': 'error', 'error': 'Client disconnected'}
             except (BlockingIOError, OSError):
@@ -866,14 +869,33 @@ def handle_wait(state, client_sock):
                 return {'status': 'error', 'error': 'Client disconnected'}
 
         state.check_child_status()
-        time.sleep(0.1)
 
-    return {
-        'status': 'ok',
-        'data': {
-            'exit_code': state.exit_code
-        }
-    }
+        if activity_mode:
+            # Activity mode: return as soon as activity or exit is detected
+            # Get separate flags for PTY activity vs process exit
+            pty_activity = state.screen.activity
+            exited = state.exit_code is not None
+            if pty_activity or exited:
+                # Clear the PTY activity flag
+                state.screen.activity = False
+                return {
+                    'status': 'ok',
+                    'data': {
+                        'activity': pty_activity,
+                        'exited': exited
+                    }
+                }
+        else:
+            # Normal mode: wait for exit
+            if state.exit_code is not None:
+                return {
+                    'status': 'ok',
+                    'data': {
+                        'exit_code': state.exit_code
+                    }
+                }
+
+        time.sleep(0.1)
 
 
 def handle_kill(data, state):
@@ -1148,8 +1170,8 @@ def cmd_stop(args):
 
 
 def cmd_wait(args):
-    """Wait command - wait for program to exit"""
-    request = {'type': 'WAIT'}
+    """Wait command - wait for program to exit or activity"""
+    request = {'type': 'WAIT', 'data': {'activity': args.activity}}
     response = send_request(args.socket, request)
 
     if response['status'] == 'error':
@@ -1157,7 +1179,13 @@ def cmd_wait(args):
         sys.exit(1)
 
     data = response['data']
-    if data['exit_code'] is not None:
+    if args.activity:
+        # Activity mode: report both terminal activity and exit status
+        has_activity = data.get('activity', False)
+        has_exited = data.get('exited', False)
+        print(f"Terminal activity: {'true' if has_activity else 'false'}")
+        print(f"Application exited: {'true' if has_exited else 'false'}")
+    elif data['exit_code'] is not None:
         # Print exit code but exit with 0 (success) to match Rust behavior
         print(data['exit_code'])
         sys.exit(0)
@@ -1264,8 +1292,10 @@ def main():
     stop_parser.set_defaults(func=cmd_stop)
 
     # Wait command
-    wait_parser = subparsers.add_parser('wait', help='Wait for exit')
+    wait_parser = subparsers.add_parser('wait', help='Wait for exit or activity')
     wait_parser.add_argument('--socket', required=True, help='Socket path')
+    wait_parser.add_argument('--activity', action='store_true',
+                             help='Wait for activity (any output) instead of exit')
     wait_parser.set_defaults(func=cmd_wait)
 
     # Kill command
