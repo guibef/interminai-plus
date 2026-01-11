@@ -93,16 +93,38 @@ This avoids tricky vim navigation for large or intricate changes.
 However, if editing is going to use sed anyway, using :%s/old/new/gc within vim
 is more robust and more powerful as it shows you each change.
 
-## newline/enter hint
+## Pressing Enter: `\n` vs `\r`
+
+Traditional Unix apps accept either `\n` (LF) or `\r` (CR) for Enter because the
+kernel TTY driver translates CR to LF when the ICRNL flag is set (default in
+"cooked" mode). However, some modern apps (especially React/Ink-based TUIs like
+cursor-agent) run in raw mode with ICRNL disabled, and only recognize `\r`.
+
+**Best practice**: Always use `\r` for Enter/submit. It works universally:
+- Traditional apps: kernel translates `\r` → `\n` (if ICRNL set)
+- Raw-mode apps: receive `\r` directly as expected
+
+Use `\n` only when you specifically want to add a newline to multiline input
+(like continuing to type on a new line without submitting).
+
+```bash
+# Submit a command (use \r)
+interminai input --socket "$SOCKET" --text 'hello world\r'
+
+# Multiline input (use \n for newlines, \r to submit)
+interminai input --socket "$SOCKET" --text 'line1\nline2\nline3\r'
+```
+
+## Menu prompts needing Enter
 
 For git add -i/-p, the menu shown is not interactive, an action does not
 take effect until you press enter. For example:
 
 - Stage this hunk [y,n,q,a,d,K,j,J,g,/,e,?]?
 
-Actually expects y\n and will not take effect until the newline is input.
+Actually expects `y` followed by Enter and will not take effect until Enter is sent.
 
-If you observe a tool is waiting for \n once it is safe to assume
+If you observe a tool is waiting for Enter once, it is safe to assume
 it will be waiting for it next time, too.
 
 ## Long lived shell sessions
