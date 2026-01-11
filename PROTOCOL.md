@@ -260,7 +260,7 @@ buffer is atomically returned and then cleared.
     "termios": {
       "mode": "cooked",
       "flags": ["ECHO", "ISIG", "ICRNL", "IXON", "OPOST", "ONLCR"],
-      "raw": {
+      "hex": {
         "iflag": "0x0500",
         "oflag": "0x0005",
         "lflag": "0x8a3b",
@@ -287,7 +287,7 @@ buffer is atomically returned and then cleared.
 - `termios`: Terminal settings (from `tcgetattr()`)
   - `mode`: "cooked" (canonical) or "raw" (non-canonical)
   - `flags`: Active termios flags (ECHO, ISIG, ICRNL, IXON, OPOST, ONLCR, etc.)
-  - `raw`: Raw hex values for c_iflag, c_oflag, c_lflag, c_cflag
+  - `hex`: Hex values for c_iflag, c_oflag, c_lflag, c_cflag
   - `c_cc`: Control characters in `^X` notation (e.g., `^C` = 0x03)
 
 **Notes:**

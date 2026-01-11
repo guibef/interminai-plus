@@ -1277,7 +1277,7 @@ fn handle_debug(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Res
             serde_json::json!({
                 "mode": mode,
                 "flags": flags,
-                "raw": {
+                "hex": {
                     "iflag": format!("0x{:04x}", iflag_raw),
                     "oflag": format!("0x{:04x}", oflag_raw),
                     "lflag": format!("0x{:04x}", lflag_raw),
@@ -1686,13 +1686,13 @@ fn main() -> Result<()> {
                             }
                         }
 
-                        // Raw values
-                        if let Some(raw) = termios.get("raw") {
-                            let iflag = raw.get("iflag").and_then(|v| v.as_str()).unwrap_or("?");
-                            let oflag = raw.get("oflag").and_then(|v| v.as_str()).unwrap_or("?");
-                            let lflag = raw.get("lflag").and_then(|v| v.as_str()).unwrap_or("?");
-                            let cflag = raw.get("cflag").and_then(|v| v.as_str()).unwrap_or("?");
-                            println!("  Raw: iflag={} oflag={} lflag={} cflag={}", iflag, oflag, lflag, cflag);
+                        // Hex values
+                        if let Some(hex) = termios.get("hex") {
+                            let iflag = hex.get("iflag").and_then(|v| v.as_str()).unwrap_or("?");
+                            let oflag = hex.get("oflag").and_then(|v| v.as_str()).unwrap_or("?");
+                            let lflag = hex.get("lflag").and_then(|v| v.as_str()).unwrap_or("?");
+                            let cflag = hex.get("cflag").and_then(|v| v.as_str()).unwrap_or("?");
+                            println!("  Hex: iflag={} oflag={} lflag={} cflag={}", iflag, oflag, lflag, cflag);
                         }
 
                         // Control characters

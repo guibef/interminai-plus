@@ -270,7 +270,7 @@ Unhandled escape sequences:
 Termios:
   Mode: raw
   Flags: OPOST
-  Raw: iflag=0x0000 oflag=0x0001 lflag=0x0a20 cflag=0xf00bf
+  Hex: iflag=0x0000 oflag=0x0001 lflag=0x0a20 cflag=0xf00bf
   c_cc: VINTR=^C VEOF=^D VERASE=^? VKILL=^U VSUSP=^Z VQUIT=^\
 ```
 
@@ -282,7 +282,7 @@ Termios:
   - ICRNL - CR (\\r) translated to NL (\\n) on input
   - IXON - XON/XOFF flow control enabled
   - OPOST/ONLCR - Output processing (NL→CRNL)
-- `Raw`: Hex values of c_iflag, c_oflag, c_lflag, c_cflag
+- `Hex`: Hex values of c_iflag, c_oflag, c_lflag, c_cflag
 - `c_cc`: Control characters (e.g., ^C = 0x03 triggers VINTR)
 
 **Use cases:**
