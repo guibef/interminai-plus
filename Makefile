@@ -26,7 +26,7 @@ help: ## Show this help message
 	@echo "  make test-skill           - Validate skill using skills-ref"
 	@echo "  make demo                 - Generate demo.gif showing Claude using interminai"
 	@echo "  make demo-gdb             - Generate demo-gdb.gif showing Claude debugging with gdb"
-	@echo "  make build                - Generate a release binary (don't install)
+	@echo "  make build                - Generate a release binary (don't install)"
 	@echo "  make clean                - Remove build artifacts and executables installed in this repo"
 	@echo "  make help                 - Show this help message"
 	@echo ""
