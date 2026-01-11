@@ -14,7 +14,7 @@ serde_json = "1.0"
 nix = { version = "0.27", features = ["term", "process", "signal", "ioctl", "fs"] }
 vte = "0.13"
 fork = "0.6.0"
-rustix = { version = "1.1.2", features = ["termios", "net", "process"] }
+rustix = { version = "1.1.2", features = ["termios", "net", "process", "event"] }
 alacritty_terminal = "0.25"
 rpassword = "7.3"
 

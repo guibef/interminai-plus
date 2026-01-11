@@ -513,15 +513,42 @@ fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, c
                 activity: false,
             }));
 
-            // Start PTY reader thread
+            // Start PTY reader thread - use poll() for efficient event-driven I/O
             let state_clone = state.clone();
+            // Dup the fd so the thread owns its own copy for polling
+            let poll_fd = rustix::io::dup(&state.lock().unwrap().master_fd)?;
             thread::spawn(move || {
+                use rustix::event::{poll, PollFd, PollFlags};
+                let mut pty_closed = false;
                 loop {
-                    thread::sleep(Duration::from_millis(50));
-                    let mut state = state_clone.lock().unwrap();
-                    state.check_child_status();
-                    state.read_pty_output();
+                    if pty_closed {
+                        // PTY closed but child may still be running - poll child status only
+                        let mut state = state_clone.lock().unwrap();
+                        state.check_child_status();
+                        if state.exit_code.is_some() {
+                            break;
+                        }
+                        drop(state);
+                        thread::sleep(Duration::from_millis(100));
+                        continue;
+                    }
 
+                    // Wait for PTY events using poll()
+                    let mut poll_fds = [PollFd::new(&poll_fd, PollFlags::IN | PollFlags::HUP)];
+                    if poll(&mut poll_fds, None).is_err() {
+                        break;
+                    }
+
+                    let mut state = state_clone.lock().unwrap();
+                    let revents = poll_fds[0].revents();
+                    if revents.contains(PollFlags::IN) {
+                        state.read_pty_output();
+                    }
+                    if revents.intersects(PollFlags::HUP | PollFlags::ERR) {
+                        state.read_pty_output();
+                        pty_closed = true;
+                    }
+                    state.check_child_status();
                     if state.exit_code.is_some() {
                         break;
                     }
