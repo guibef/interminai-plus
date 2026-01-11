@@ -87,6 +87,11 @@ enum Commands {
         /// Supports: \n \r \t \a \b \f \v \\ \e \xHH
         #[arg(long)]
         text: Option<String>,
+
+        /// Read password from terminal with echo disabled
+        /// Automatically appends \r (Enter) after input
+        #[arg(long)]
+        password: bool,
     },
 
     /// Get screen output from running session
@@ -1090,9 +1095,16 @@ fn main() -> Result<()> {
         Commands::Start { socket, size, emulator, no_daemon, pty_dump, command } => {
             cmd_start(socket, size, emulator, !no_daemon, pty_dump, command)?;
         }
-        Commands::Input { socket, text } => {
-            // Use --text if provided, otherwise read from stdin
-            let input = if let Some(text_arg) = text {
+        Commands::Input { socket, text, password } => {
+            // Priority: --password, --text, stdin
+            let input = if password {
+                // Read password with echo disabled, append \r for Enter
+                eprint!("Type your password and press Enter: ");
+                std::io::stderr().flush().ok();
+                let password = rpassword::read_password()
+                    .context("Failed to read password (is stdin a terminal?)")?;
+                format!("{}\r", password)
+            } else if let Some(text_arg) = text {
                 unescape(&text_arg)?
             } else {
                 let mut buf = String::new();
