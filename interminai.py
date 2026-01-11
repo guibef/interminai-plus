@@ -708,14 +708,31 @@ def run_daemon(socket_path, cols, rows, command, socket_was_auto_generated, emul
     sock.listen(5)
     sock.setblocking(False)
 
-    # Start PTY reader thread
+    # Start PTY reader thread - use poll() for efficient event-driven I/O
     def pty_reader():
+        poller = select.poll()
+        poller.register(state.master_fd, select.POLLIN | select.POLLHUP | select.POLLERR)
+        pty_closed = False
         while not state.should_shutdown:
+            if pty_closed:
+                # PTY closed but child may still be running - poll child status only
+                state.check_child_status()
+                if state.exit_code is not None:
+                    break
+                time.sleep(0.1)
+                continue
+            # Wait for PTY events
+            events = poller.poll()
+            for fd, event in events:
+                if event & select.POLLIN:
+                    state.read_pty_output()
+                if event & (select.POLLHUP | select.POLLERR):
+                    # PTY closed - drain remaining output, but child may still be running
+                    state.read_pty_output()
+                    pty_closed = True
             state.check_child_status()
-            state.read_pty_output()
             if state.exit_code is not None:
                 break
-            time.sleep(0.05)
 
     reader_thread = threading.Thread(target=pty_reader, daemon=True)
     reader_thread.start()
