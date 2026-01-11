@@ -1126,9 +1126,27 @@ fn main() -> Result<()> {
         Commands::Input { socket, text, password } => {
             // Priority: --password, --text, stdin
             let input = if password {
+                // Fetch current screen to show the password prompt from the application
+                let output_request = serde_json::json!({
+                    "type": "OUTPUT",
+                    "format": "ascii"
+                });
+                let output_response = send_request(&socket, output_request)?;
+
+                // Show generic guidance, then the actual prompt from the application
+                eprintln!("Type your secret or password and press Enter.");
+                if let Some(screen) = output_response.data
+                    .as_ref()
+                    .and_then(|d| d.get("screen"))
+                    .and_then(|s| s.as_str())
+                {
+                    if let Some(last_line) = screen.lines().filter(|l| !l.trim().is_empty()).last() {
+                        eprint!("{} ", last_line);
+                        std::io::stderr().flush().ok();
+                    }
+                }
+
                 // Read password with echo disabled, append \r for Enter
-                eprint!("Type your password and press Enter: ");
-                std::io::stderr().flush().ok();
                 let password = rpassword::read_password()
                     .context("Failed to read password (is stdin a terminal?)")?;
                 format!("{}\r", password)
