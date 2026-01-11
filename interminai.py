@@ -414,7 +414,7 @@ class PyteScreen:
 class DaemonState:
     """State for the daemon process"""
 
-    def __init__(self, master_fd, child_pid, socket_path, rows, cols, socket_was_auto_generated, emulator='xterm'):
+    def __init__(self, master_fd, child_pid, socket_path, rows, cols, socket_was_auto_generated, emulator='xterm', pty_dump=None):
         self.master_fd = master_fd
         self.child_pid = child_pid
         self.socket_path = socket_path
@@ -426,6 +426,7 @@ class DaemonState:
         self.exit_code = None
         self.should_shutdown = False
         self.socket_was_auto_generated = socket_was_auto_generated
+        self.pty_dump = pty_dump
 
     def check_child_status(self):
         """Check if child process has exited"""
@@ -447,6 +448,10 @@ class DaemonState:
         try:
             data = os.read(self.master_fd, 4096)
             if data:
+                # Dump raw bytes if pty_dump is enabled
+                if self.pty_dump:
+                    self.pty_dump.write(data)
+                    self.pty_dump.flush()
                 self.screen.process_output(data)
         except (OSError, IOError):
             pass
@@ -501,7 +506,7 @@ def cmd_start(args):
         print(f"PID: {os.getpid()}")
         print(f"Auto-generated: {socket_was_auto_generated}")
         sys.stdout.flush()
-        run_daemon(socket_path, cols, rows, args.command, socket_was_auto_generated, args.emulator)
+        run_daemon(socket_path, cols, rows, args.command, socket_was_auto_generated, args.emulator, args.pty_dump)
     else:
         # Daemonize (double fork)
         pid = os.fork()
@@ -539,10 +544,10 @@ def cmd_start(args):
             os.close(devnull)
 
         # Run daemon
-        run_daemon(socket_path, cols, rows, args.command, socket_was_auto_generated, args.emulator)
+        run_daemon(socket_path, cols, rows, args.command, socket_was_auto_generated, args.emulator, args.pty_dump)
 
 
-def run_daemon(socket_path, cols, rows, command, socket_was_auto_generated, emulator='xterm'):
+def run_daemon(socket_path, cols, rows, command, socket_was_auto_generated, emulator='xterm', pty_dump_path=None):
     """Run the daemon process"""
     # Ignore SIGPIPE in daemon - we handle socket errors via exceptions
     # (main() sets SIGPIPE to SIG_DFL for client commands that pipe to head/less)
@@ -590,8 +595,13 @@ def run_daemon(socket_path, cols, rows, command, socket_was_auto_generated, emul
     # Parent (daemon) process
     os.close(slave_fd)
 
+    # Open PTY dump file if specified
+    pty_dump_file = None
+    if pty_dump_path:
+        pty_dump_file = open(pty_dump_path, 'ab')
+
     # Create state
-    state = DaemonState(master_fd, child_pid, socket_path, rows, cols, socket_was_auto_generated, emulator)
+    state = DaemonState(master_fd, child_pid, socket_path, rows, cols, socket_was_auto_generated, emulator, pty_dump_file)
 
     # Create Unix socket
     if os.path.exists(socket_path):
@@ -1126,6 +1136,7 @@ def main():
     start_parser.add_argument('--emulator', choices=emulator_choices, default=emulator_default,
                               help='Terminal emulator backend')
     start_parser.add_argument('--no-daemon', action='store_true', help='Run in foreground')
+    start_parser.add_argument('--pty-dump', help='Dump raw PTY output to this file (for debugging)')
     start_parser.add_argument('command', nargs='+', help='Command to run')
     start_parser.set_defaults(func=cmd_start)
 
