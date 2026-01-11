@@ -68,6 +68,10 @@ enum Commands {
         #[arg(long)]
         no_daemon: bool,
 
+        /// Dump all raw PTY output to this file (for debugging)
+        #[arg(long)]
+        pty_dump: Option<String>,
+
         /// Command to run
         #[arg(required = true, last = true)]
         command: Vec<String>,
@@ -207,6 +211,7 @@ struct DaemonState {
     socket_path: String,
     socket_was_auto_generated: bool,
     should_shutdown: bool,
+    pty_dump: Option<std::fs::File>,
 }
 
 impl DaemonState {
@@ -232,6 +237,10 @@ impl DaemonState {
             match nix::unistd::read(self.master_fd.as_raw_fd(), &mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
+                    // Dump raw bytes if pty_dump is enabled
+                    if let Some(ref mut dump) = self.pty_dump {
+                        let _ = dump.write_all(&buf[..n]);
+                    }
                     self.terminal.process_bytes(&buf[..n]);
                 }
                 Err(_) => break,
@@ -339,7 +348,7 @@ fn auto_generate_socket_path() -> Result<String> {
     Ok(socket_path)
 }
 
-fn cmd_start(socket: Option<String>, size: String, emulator: Emulator, daemon: bool, command: Vec<String>) -> Result<()> {
+fn cmd_start(socket: Option<String>, size: String, emulator: Emulator, daemon: bool, pty_dump: Option<String>, command: Vec<String>) -> Result<()> {
     let socket_was_auto_generated = socket.is_none();
     let socket_path = match socket {
         Some(path) => path,
@@ -354,7 +363,7 @@ fn cmd_start(socket: Option<String>, size: String, emulator: Emulator, daemon: b
         println!("PID: {}", std::process::id());
         println!("Auto-generated: {}", socket_was_auto_generated);
 
-        return run_daemon(socket_path, socket_was_auto_generated, rows, cols, emulator, command);
+        return run_daemon(socket_path, socket_was_auto_generated, rows, cols, emulator, pty_dump, command);
     }
 
     // Double-fork to properly daemonize
@@ -417,7 +426,7 @@ fn cmd_start(socket: Option<String>, size: String, emulator: Emulator, daemon: b
                     }
 
                     // Run daemon
-                    if let Err(e) = run_daemon(socket_path, socket_was_auto_generated, rows, cols, emulator, command) {
+                    if let Err(e) = run_daemon(socket_path, socket_was_auto_generated, rows, cols, emulator, pty_dump, command) {
                         // Daemon errors go to /dev/null in daemon mode, which is fine
                         eprintln!("Daemon error: {}", e);
                         std::process::exit(1);
@@ -436,7 +445,7 @@ fn cmd_start(socket: Option<String>, size: String, emulator: Emulator, daemon: b
     }
 }
 
-fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, cols: u16, emulator: Emulator, command: Vec<String>) -> Result<()> {
+fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, cols: u16, emulator: Emulator, pty_dump: Option<String>, command: Vec<String>) -> Result<()> {
     // Create PTY
     let winsize = Winsize {
         ws_row: rows,
@@ -467,6 +476,16 @@ fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, c
             fcntl(pty.master.as_raw_fd(), FcntlArg::F_SETFL(oflags))
                 .context("Failed to set PTY non-blocking")?;
 
+            // Open PTY dump file if specified
+            let pty_dump_file = match &pty_dump {
+                Some(path) => Some(std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)
+                    .context("Failed to open PTY dump file")?),
+                None => None,
+            };
+
             // Create state
             let state = Arc::new(Mutex::new(DaemonState {
                 master_fd: pty.master,
@@ -476,6 +495,7 @@ fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, c
                 socket_path: socket_path.clone(),
                 socket_was_auto_generated,
                 should_shutdown: false,
+                pty_dump: pty_dump_file,
             }));
 
             // Start PTY reader thread
@@ -1067,8 +1087,8 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Start { socket, size, emulator, no_daemon, command } => {
-            cmd_start(socket, size, emulator, !no_daemon, command)?;
+        Commands::Start { socket, size, emulator, no_daemon, pty_dump, command } => {
+            cmd_start(socket, size, emulator, !no_daemon, pty_dump, command)?;
         }
         Commands::Input { socket, text } => {
             // Use --text if provided, otherwise read from stdin

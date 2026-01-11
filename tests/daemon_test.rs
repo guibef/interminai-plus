@@ -215,3 +215,49 @@ fn test_auto_generated_socket_from_output() {
     assert!(!socket_dir.exists(),
         "Auto-generated socket directory should be removed after stop");
 }
+
+#[test]
+fn test_pty_dump_captures_output() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let socket_path = temp_dir.path().join("dump.sock");
+    let dump_path = temp_dir.path().join("pty.dump");
+
+    // Start with --pty-dump
+    let output = Command::new(interminai_server_bin())
+        .arg("start")
+        .args(emulator_args())
+        .arg("--socket")
+        .arg(socket_path.to_str().unwrap())
+        .arg("--pty-dump")
+        .arg(dump_path.to_str().unwrap())
+        .arg("--")
+        .arg("bash")
+        .arg("-c")
+        .arg("echo TESTMARKER123")
+        .output()
+        .expect("Failed to execute interminai");
+
+    assert!(output.status.success(), "Command failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Wait for output to be captured
+    thread::sleep(Duration::from_millis(500));
+
+    // Stop daemon
+    Command::new(interminai_client_bin())
+        .arg("stop")
+        .arg("--socket")
+        .arg(socket_path.to_str().unwrap())
+        .assert()
+        .success();
+
+    // Wait for file to be flushed
+    thread::sleep(Duration::from_millis(200));
+
+    // Verify dump file exists and contains our marker
+    assert!(dump_path.exists(), "PTY dump file should exist");
+
+    let dump_content = std::fs::read_to_string(&dump_path)
+        .expect("Failed to read dump file");
+    assert!(dump_content.contains("TESTMARKER123"),
+        "Dump file should contain TESTMARKER123. Got: {}", dump_content);
+}

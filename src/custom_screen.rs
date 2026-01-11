@@ -141,6 +141,9 @@ impl TerminalEmulator for CustomScreen {
     }
 
     fn resize(&mut self, rows: usize, cols: usize) {
+        // TODO: maybe drop content copying, the app redraws via SIGWINCH anyway
+        // Alternative: just create fresh screen:
+        // self.cells = vec![vec![' '; cols]; rows];
         let mut new_cells = vec![vec![' '; cols]; rows];
         for row in 0..self.rows.min(rows) {
             for col in 0..self.cols.min(cols) {
