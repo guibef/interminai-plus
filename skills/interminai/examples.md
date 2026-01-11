@@ -411,9 +411,8 @@ echo "$OUTPUT"
 
 if echo "$OUTPUT" | grep -qi "password"; then
     echo "=== Password required, prompting user ==="
-    # Use --password to securely get password from user (not echoed)
-    ./scripts/interminai input --socket "$SOCK" --password
-    # User types password in their terminal, Enter appended automatically
+    # User runs: ./scripts/interminai input --socket "$SOCK" --password
+    # User will be prompted to type password and press Enter to submit (sent as \r)
 fi
 
 # Wait for command to complete
@@ -430,8 +429,8 @@ echo "=== Sudo command complete ==="
 ```
 
 **Key Points:**
+- Tell the user to run `interminai input --password` themselves
 - `--password` reads password with echo disabled (secure)
-- Enter (`\r`) is automatically appended
 - Works with sudo, ssh, and any password prompt
 - The password is never visible on screen or in logs
 
