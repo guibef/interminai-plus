@@ -1096,8 +1096,18 @@ def cmd_output(args):
 
 def cmd_input(args):
     """Input command - send input to the program"""
-    # Use --text if provided, otherwise read from stdin
-    if args.text is not None:
+    # Priority: --password, --text, stdin
+    if args.password:
+        import getpass
+        print("Type your password and press Enter: ", end='', file=sys.stderr)
+        sys.stderr.flush()
+        try:
+            password = getpass.getpass(prompt='')
+        except Exception as e:
+            print(f"Error: Failed to read password (is stdin a terminal?): {e}", file=sys.stderr)
+            sys.exit(1)
+        data = password + '\r'  # Append Enter
+    elif args.text is not None:
         data = unescape(args.text)
     else:
         data = sys.stdin.read()
@@ -1239,6 +1249,8 @@ def main():
     input_parser = subparsers.add_parser('input', help='Send input')
     input_parser.add_argument('--socket', required=True, help='Socket path')
     input_parser.add_argument('--text', help='Input text with escape sequences (alternative to stdin)')
+    input_parser.add_argument('--password', action='store_true',
+                              help='Read password from terminal with echo disabled')
     input_parser.set_defaults(func=cmd_input)
 
     # Running command
