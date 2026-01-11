@@ -44,7 +44,7 @@ rm "$SOCKET"; rmdir `dirname "$SOCKET"`
 ## Essential Commands
 
 - `start --socket PATH -- COMMAND` - Start application
-- `input --socket PATH --text 'text'` - Send input (escapes: `\n` `\e` `\t` `\xHH`)
+- `input --socket PATH --text 'text'` - Send input (escapes: `\r` `\n` `\e` `\t` `\xHH` see also: "Pressing Enter")
 - `output --socket PATH` - Get screen (add `--cursor print` for cursor position)
 - `stop --socket PATH` - Stop session
 
