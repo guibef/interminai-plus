@@ -202,9 +202,9 @@ sleep 0.5
 ./scripts/interminai output --socket /tmp/interminai-xxx/socket
 # Shows: [sudo] password for user:
 
-# Prompt user for password (not echoed, Enter appended automatically)
-./scripts/interminai input --socket /tmp/interminai-xxx/socket --password
-# User types password in their terminal, it's sent to sudo
+# IMPORTANT: Tell the user to run interminai input --password
+echo "Password required. Please run: interminai input --socket /tmp/interminai-xxx/socket --password"
+# User runs the command, types password, and it's sent to sudo
 
 ./scripts/interminai wait --socket /tmp/interminai-xxx/socket
 ```
