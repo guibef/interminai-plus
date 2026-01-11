@@ -492,3 +492,121 @@ printf ":%%s/old/new/gi\n" | ./scripts/interminai input --socket "$SOCK"   # Rep
 printf ":10,20s/old/new/g\n" | ./scripts/interminai input --socket "$SOCK" # Replace in lines 10-20
 printf ":%%s/\\s\\+$//ge\n" | ./scripts/interminai input --socket "$SOCK"  # Remove trailing whitespace
 ```
+
+## Example 10: Supervise Another AI Agent
+
+Use interminai to run and control another CLI LLM (like cursor-agent, codex, aider, etc.).
+The main LLM can review the subagent's proposed actions, provide feedback, and approve or reject them.
+
+```bash
+#!/bin/bash
+SOCK=`mktemp -d /tmp/interminai-XXXXXX`/sock
+
+# Start a subagent (e.g., cursor-agent) inside interminai
+# The subagent will prompt for confirmation before executing actions
+./scripts/interminai start --socket "$SOCK" --size 120x40 -- cursor-agent
+sleep 2
+
+# Check the subagent's initial screen
+./scripts/interminai output --socket "$SOCK"
+
+# Send a task to the subagent (for React/Ink apps, send text then Enter separately)
+./scripts/interminai input --socket "$SOCK" --text 'refactor the authentication module'
+sleep 0.1
+./scripts/interminai input --socket "$SOCK" --text '\r'
+
+# === Main supervision loop: review, iterate, approve ===
+while true; do
+    # Wait for subagent to produce output
+    timeout 60 ./scripts/interminai wait --socket "$SOCK" --activity
+
+    # Review what the subagent wants to do
+    OUTPUT=`./scripts/interminai output --socket "$SOCK"`
+    echo "=== Subagent response: ==="
+    echo "$OUTPUT"
+
+    # Check if subagent is asking for confirmation
+    if echo "$OUTPUT" | grep -qi "execute\|allow\|confirm\|proceed\|\[y/n\]"; then
+        # Main LLM reviews the proposed action here...
+        # Decide: approve, reject, or provide feedback
+
+        # Option 1: Approve the action
+        echo "=== Approving action ==="
+        ./scripts/interminai input --socket "$SOCK" --text 'y'
+
+        # Option 2: Reject and provide feedback
+        # ./scripts/interminai input --socket "$SOCK" --text 'n'
+        # sleep 0.1
+        # ./scripts/interminai input --socket "$SOCK" --text 'please use async/await instead of callbacks\r'
+
+    # Check if subagent is waiting for next instruction
+    elif echo "$OUTPUT" | grep -qi "what.*next\|ready\|waiting\|done\|completed"; then
+        # Provide next step or continue
+        echo "=== Directing subagent to next step ==="
+        ./scripts/interminai input --socket "$SOCK" --text 'proceed to the next step\r'
+
+    # Check if task is complete
+    elif echo "$OUTPUT" | grep -qi "task complete\|all done\|finished"; then
+        echo "=== Task complete ==="
+        break
+    fi
+
+    sleep 0.5
+done
+
+# Review final result
+./scripts/interminai output --socket "$SOCK"
+
+# Clean up
+./scripts/interminai input --socket "$SOCK" --text '/exit\r'
+sleep 1
+./scripts/interminai stop --socket "$SOCK"
+rm "$SOCK"; rmdir `dirname "$SOCK"`
+
+echo "=== Subagent session complete ==="
+```
+
+**Supervision patterns:**
+
+```bash
+# Start subagent (auto-generated socket)
+./scripts/interminai start --size 120x40 -- cursor-agent
+# Output: Socket: /tmp/interminai-xxx/socket
+
+# Check subagent screen
+./scripts/interminai output --socket /tmp/interminai-xxx/socket
+
+# Approve an action
+./scripts/interminai input --socket "$SOCK" --text 'y'
+
+# Reject an action
+./scripts/interminai input --socket "$SOCK" --text 'n'
+
+# Provide feedback after rejection
+./scripts/interminai input --socket "$SOCK" --text 'use TypeScript instead of JavaScript\r'
+
+# Direct to next step
+./scripts/interminai input --socket "$SOCK" --text 'proceed to the next step\r'
+
+# Ask for clarification
+./scripts/interminai input --socket "$SOCK" --text 'explain what this change does before proceeding\r'
+
+# Request modification
+./scripts/interminai input --socket "$SOCK" --text 'also add error handling for the edge cases\r'
+
+# Exit the subagent
+./scripts/interminai input --socket "$SOCK" --text '/exit\r'
+
+# Stop the session (always clean up!)
+./scripts/interminai stop --socket "$SOCK"
+```
+
+**Key Points:**
+- Run any CLI LLM as a subagent: cursor-agent, codex, aider, claude, etc.
+- Use larger terminal (`--size 120x40`) to see more context from the subagent
+- Use `wait --activity` with timeout to wait for subagent output without busy-polling
+- Review the subagent's proposed actions before approving with `y` or rejecting with `n`
+- Provide feedback to iterate: reject action, then send instructions for improvement
+- Direct the subagent with "proceed to the next step" when ready to continue
+- For React/Ink-based agents (like cursor-agent), send text and Enter separately with a small delay
+- This enables "LLM supervising LLM" workflows where the main agent controls what actions are allowed
