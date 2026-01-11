@@ -86,27 +86,56 @@ class Screen:
         self.debug_buffer = DebugBuffer()
         # Pending responses to be sent back to the PTY (e.g., for DSR cursor position query)
         self.pending_responses = []
+        # Delayed wrap mode: when true, the next printable character will wrap to next line first
+        self.pending_wrap = False
 
     def scroll_up(self):
         """Scroll screen up by one line"""
         self.cells.pop(0)
         self.cells.append([' ' for _ in range(self.cols)])
 
+    def move_cursor(self, row, col):
+        """Move cursor to specified position, canceling pending wrap"""
+        self.pending_wrap = False
+        self.cursor_row = min(row, self.rows - 1)
+        self.cursor_col = min(col, self.cols - 1)
+
+    def move_cursor_row(self, row):
+        """Move cursor to specified row, canceling pending wrap"""
+        self.pending_wrap = False
+        self.cursor_row = min(max(0, row), self.rows - 1)
+
+    def move_cursor_col(self, col):
+        """Move cursor to specified column, canceling pending wrap"""
+        self.pending_wrap = False
+        self.cursor_col = min(max(0, col), self.cols - 1)
+
     def print_char(self, c):
         """Print a character at cursor position"""
         self.last_char = c
+
+        # Handle delayed wrap: if pending_wrap is set, wrap now before printing
+        if self.pending_wrap:
+            self.pending_wrap = False
+            self.cursor_col = 0
+            self.cursor_row += 1
+            if self.cursor_row >= self.rows:
+                self.scroll_up()
+                self.cursor_row = self.rows - 1
+
         if self.cursor_row < self.rows and self.cursor_col < self.cols:
             self.cells[self.cursor_row][self.cursor_col] = c
             self.cursor_col += 1
+            # If we've reached the right edge, set pending_wrap instead of wrapping immediately
             if self.cursor_col >= self.cols:
-                self.cursor_col = 0
-                self.cursor_row += 1
-                if self.cursor_row >= self.rows:
-                    self.scroll_up()
-                    self.cursor_row = self.rows - 1
+                self.cursor_col = self.cols - 1  # Keep cursor at last column
+                self.pending_wrap = True
 
     def handle_control(self, byte):
         """Handle control characters"""
+        # Control characters cancel pending wrap
+        self.pending_wrap = False
+
         if byte == ord('\n'):
             self.cursor_row += 1
             if self.cursor_row >= self.rows:
@@ -128,26 +157,25 @@ class Screen:
         if action in ('H', 'f'):  # Cursor position
             row = (params[0] if len(params) > 0 else 1) - 1
             col = (params[1] if len(params) > 1 else 1) - 1
-            self.cursor_row = min(row, self.rows - 1)
-            self.cursor_col = min(col, self.cols - 1)
+            self.move_cursor(row, col)
         elif action == 'A':  # Cursor up
             n = max(params[0] if params else 1, 1)
-            self.cursor_row = max(0, self.cursor_row - n)
+            self.move_cursor_row(self.cursor_row - n)
         elif action == 'B':  # Cursor down
             n = max(params[0] if params else 1, 1)
-            self.cursor_row = min(self.rows - 1, self.cursor_row + n)
+            self.move_cursor_row(self.cursor_row + n)
         elif action == 'C':  # Cursor forward
             n = max(params[0] if params else 1, 1)
-            self.cursor_col = min(self.cols - 1, self.cursor_col + n)
+            self.move_cursor_col(self.cursor_col + n)
         elif action == 'D':  # Cursor back
             n = max(params[0] if params else 1, 1)
-            self.cursor_col = max(0, self.cursor_col - n)
+            self.move_cursor_col(self.cursor_col - n)
         elif action == 'G':  # Cursor horizontal absolute (hpa)
             col = (params[0] if params else 1) - 1  # 1-based to 0-based
-            self.cursor_col = min(self.cols - 1, max(0, col))
+            self.move_cursor_col(col)
         elif action == 'd':  # Cursor vertical absolute (vpa)
             row = (params[0] if params else 1) - 1  # 1-based to 0-based
-            self.cursor_row = min(self.rows - 1, max(0, row))
+            self.move_cursor_row(row)
         elif action == 'J':  # Erase display
             mode = params[0] if params else 0
             if mode == 0:  # Clear from cursor to end
@@ -158,8 +186,7 @@ class Screen:
                         self.cells[row][col] = ' '
             elif mode == 2:  # Clear entire screen
                 self.cells = [[' ' for _ in range(self.cols)] for _ in range(self.rows)]
-                self.cursor_row = 0
-                self.cursor_col = 0
+                self.move_cursor(0, 0)
         elif action == 'K':  # Erase line
             mode = params[0] if params else 0
             if mode == 0:  # Clear from cursor to end of line
@@ -218,14 +245,16 @@ class Screen:
                 self.cells.insert(0, [' ' for _ in range(self.cols)])
         elif action == 'I':  # Cursor Horizontal Tab (cht) - move forward to next tab stop N times
             n = max(params[0] if params else 1, 1)
+            col = self.cursor_col
             for _ in range(n):
-                self.cursor_col = ((self.cursor_col // 8) + 1) * 8
-                if self.cursor_col >= self.cols:
-                    self.cursor_col = self.cols - 1
+                col = ((col // 8) + 1) * 8
+                if col >= self.cols:
+                    col = self.cols - 1
                     break
+            self.move_cursor_col(col)
         elif action == 'Z':  # Back Tab (cbt)
             if self.cursor_col > 0:
-                self.cursor_col = ((self.cursor_col - 1) // 8) * 8
+                self.move_cursor_col(((self.cursor_col - 1) // 8) * 8)
         elif action == 'b':  # Repeat (rep) - repeat last printed char N times
             n = max(params[0] if params else 1, 1)
             c = self.last_char
