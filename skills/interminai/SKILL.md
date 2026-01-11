@@ -127,6 +127,29 @@ Actually expects `y` followed by Enter and will not take effect until Enter is s
 If you observe a tool is waiting for Enter once, it is safe to assume
 it will be waiting for it next time, too.
 
+## Modern TUI Apps (Ink/React-based)
+
+Apps built with React/Ink (like cursor-agent) need a delay between typing text
+and pressing Enter. Sending text and Enter in a single input call doesn't work
+because React's internal state isn't ready for the Enter keystroke.
+
+**Key finding**: Output polling alone is NOT sufficient. Even after text appears
+on screen, React's state machine may not be ready. A time delay is required.
+
+**Simple pattern (recommended)**:
+
+```bash
+# Send text, wait, then send Enter
+interminai input --socket "$SOCKET" --text 'your prompt here'
+sleep 0.1
+interminai input --socket "$SOCKET" --text '\r'
+```
+
+**Why this works**: The 100ms delay gives React's event loop time to process the
+input and update its internal state before receiving the Enter keystroke.
+
+Use `debug` command to check if app is in raw mode (no ICRNL flag).
+
 ## Long lived shell sessions
 
 It is possible to create a shell interminai session and pass commands to it.
