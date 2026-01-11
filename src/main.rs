@@ -1160,16 +1160,20 @@ fn main() -> Result<()> {
                 });
                 let output_response = send_request(&socket, output_request)?;
 
-                // Show generic guidance, then the actual prompt from the application
+                // Show generic guidance, then the prompt line where the cursor is
                 eprintln!("Type your secret or password and press Enter.");
-                if let Some(screen) = output_response.data
-                    .as_ref()
-                    .and_then(|d| d.get("screen"))
-                    .and_then(|s| s.as_str())
-                {
-                    if let Some(last_line) = screen.lines().filter(|l| !l.trim().is_empty()).last() {
-                        eprint!("{} ", last_line);
-                        std::io::stderr().flush().ok();
+                if let Some(data) = output_response.data.as_ref() {
+                    let cursor_row = data.get("cursor")
+                        .and_then(|c| c.get("row"))
+                        .and_then(|r| r.as_u64())
+                        .unwrap_or(0) as usize;
+                    if let Some(screen) = data.get("screen").and_then(|s| s.as_str()) {
+                        if let Some(prompt_line) = screen.lines().nth(cursor_row) {
+                            if !prompt_line.trim().is_empty() {
+                                eprint!("{} ", prompt_line);
+                                std::io::stderr().flush().ok();
+                            }
+                        }
                     }
                 }
 
