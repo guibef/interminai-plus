@@ -26,9 +26,9 @@ A terminal proxy for interactive CLI applications. See [examples.md](examples.md
 ## Quick Start
 
 ```bash
-# 1. Start session
-SOCKET=`mktemp -d /tmp/interminai-XXXXXX`/sock
-./scripts/interminai start --socket "$SOCKET" -- COMMAND
+# 1. Start session (auto-generates unique socket)
+OUTPUT=$(./scripts/interminai start -- COMMAND)
+SOCKET=$(echo "$OUTPUT" | grep "^Socket:" | cut -d' ' -f2)
 
 # 2. Send input (--text supports escapes: \r \n \e \t \xHH etc.)
 ./scripts/interminai input --socket "$SOCKET" --text ':wq\r'
@@ -38,21 +38,19 @@ SOCKET=`mktemp -d /tmp/interminai-XXXXXX`/sock
 
 # 4. Clean up (always!)
 ./scripts/interminai stop --socket "$SOCKET"
-rm "$SOCKET"; rmdir `dirname "$SOCKET"`
 ```
 
 ## Essential Commands
 
-- `start --socket PATH -- COMMAND` - Start application
+- `start -- COMMAND` - Start application (prints socket path on stdout)
 - `input --socket PATH --text 'text'` - Send input (escapes: `\r` `\n` `\e` `\t` `\xHH` see also: "Pressing Enter")
 - `output --socket PATH` - Get screen (add `--cursor print` for cursor position)
-- `stop --socket PATH` - Stop session
+- `stop --socket PATH` - Stop session (also cleans up auto-generated socket)
 
 ## Key Best Practices
 
-1. **Unique sockets**: Use `` SOCKET=`mktemp -d /tmp/interminai-XXXXXX`/sock ``
-    Alernatively, use sockets in the current directory: ./interminai-project-sock
-2. **Always clean up**: `stop`, then `rm` the socket directory
+1. **Auto-generated sockets**: Don't specify `--socket`, parse path from start output
+2. **Always clean up**: `stop` when done (auto-cleans socket)
 3. **Check output after each input** - don't blindly chain commands
 4. **Add delays**: `sleep 0.2` after input for processing
 5. **Set GIT_EDITOR=vim** for git rebase -i, git commit, etc.
@@ -155,8 +153,8 @@ Use `debug` command to check if app is in raw mode (no ICRNL flag).
 It is possible to create a shell interminai session and pass commands to it.
 
 ```bash
-SOCKET=`mktemp -d /tmp/interminai-XXXXXX`/sock
-GIT_EDITOR=vim ./scripts/interminai start --socket "$SOCKET" -- bash
+OUTPUT=$(GIT_EDITOR=vim ./scripts/interminai start -- bash)
+SOCKET=$(echo "$OUTPUT" | grep "^Socket:" | cut -d' ' -f2)
 sleep 0.5
 ./scripts/interminai output --socket "$SOCKET"
 # ... send commands now ..
@@ -166,18 +164,16 @@ sleep 0.5
 ./scripts/interminai input --socket "$SOCKET" --text ':wq\r'
 ./scripts/interminai input --socket "$SOCKET" --text 'exit\r'
 ./scripts/interminai wait --socket "$SOCKET"
-rm "$SOCKET"; rmdir `dirname "$SOCKET"`
 ```
 
 ## Git Example
 
 ```bash
-SOCKET=`mktemp -d /tmp/interminai-XXXXXX`/sock
-GIT_EDITOR=vim ./scripts/interminai start --socket "$SOCKET" -- git rebase -i HEAD~3
+OUTPUT=$(GIT_EDITOR=vim ./scripts/interminai start -- git rebase -i HEAD~3)
+SOCKET=$(echo "$OUTPUT" | grep "^Socket:" | cut -d' ' -f2)
 sleep 0.5
 ./scripts/interminai output --socket "$SOCKET"
 # ... edit with input commands ...
 ./scripts/interminai input --socket "$SOCKET" --text ':wq\r'
 ./scripts/interminai wait --socket "$SOCKET"
-rm "$SOCKET"; rmdir `dirname "$SOCKET"`
 ```
