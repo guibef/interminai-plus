@@ -62,6 +62,7 @@ Just read the socket path from the `start` output and use it directly - no need 
 4. **Add delays**: `sleep 0.2` after input for processing
 5. **Set GIT_EDITOR=vim** for git rebase -i, git commit, etc.
 6. **If screen garbled**: Send `\f` (Ctrl+L) to redraw
+7. **Wait for updates**: If screen isn't updating, use `timeout 10 interminai wait --socket PATH --activity` instead of repeatedly calling `output`
 
 ## Terminal Size
 
