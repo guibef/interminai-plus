@@ -3,7 +3,7 @@
 .PHONY: install-claude install-claude-rust install-claude-python
 .PHONY: install-codex install-codex-rust install-codex-python
 .PHONY: install-tool-rust install-tool-python
-.PHONY: test test-rust test-python test-skill
+.PHONY: test test-rust test-python test-xterm test-custom test-skill
 .PHONY: demo demo-gdb
 
 .DEFAULT_GOAL := help
@@ -20,9 +20,11 @@ help: ## Show this help message
 	@echo "  make install-codex       - Install Rust skill to ~/.claude/skills/ for Claude Code (default)"
 	@echo "  make install-codex-rust  - Install Rust skill to ~/.claude/skills/ for Claude Code"
 	@echo "  make install-codex-python - Install Python skill to ~/.claude/skills/ for Claude Code"
-	@echo "  make test                 - Run all tests"
-	@echo "  make test-rust            - Run tests with Rust implementation"
-	@echo "  make test-python          - Run tests with Python implementation"
+	@echo "  make test                 - Run all tests (both emulators, both implementations)"
+	@echo "  make test-rust            - Run Rust tests with both emulators"
+	@echo "  make test-python          - Run Python tests with both emulators"
+	@echo "  make test-xterm           - Run tests with xterm emulator"
+	@echo "  make test-custom          - Run tests with custom emulator"
 	@echo "  make test-skill           - Validate skill using skills-ref"
 	@echo "  make demo                 - Generate demo.gif showing Claude using interminai"
 	@echo "  make demo-gdb             - Generate demo-gdb.gif showing Claude debugging with gdb"
@@ -89,12 +91,18 @@ install-atomic: build
 
 test: test-rust test-python test-skill
 
-test-rust:
-	cargo test
+# Emulator selection
+test-xterm: INTERMINAI_EMULATOR = xterm
+test-custom: INTERMINAI_EMULATOR = custom
 
-test-python:
-	@echo "Running tests with Python implementation..."
-	OVERRIDE_CARGO_BIN_EXE_interminai=$(PWD)/interminai.py cargo test
+# Python uses the same test-xterm/test-custom but with Python binary
+test-python: INTERMINAI_BIN = $(PWD)/interminai.py
+
+test-rust test-python: test-xterm test-custom
+
+test-xterm test-custom:
+	@echo "Running tests with $(INTERMINAI_EMULATOR) emulator..."
+	$(if $(INTERMINAI_BIN),OVERRIDE_CARGO_BIN_EXE_interminai=$(INTERMINAI_BIN)) INTERMINAI_EMULATOR=$(INTERMINAI_EMULATOR) cargo test
 
 test-skill: subprojects/agentskills/skills-ref/.venv ## Validate skill using skills-ref
 	@echo "Validating skill..."
