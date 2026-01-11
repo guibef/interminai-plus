@@ -1151,14 +1151,15 @@ def cmd_input(args):
         output_request = {'type': 'OUTPUT', 'format': 'ascii'}
         output_response = send_request(args.socket, output_request)
 
-        # Show generic guidance, then the actual prompt from the application
+        # Show generic guidance, then the prompt line where the cursor is
         print("Type your secret or password and press Enter.", file=sys.stderr)
         if output_response.get('status') == 'ok':
-            screen = output_response.get('data', {}).get('screen', '')
-            # Get the last non-empty line (the password prompt)
-            lines = [l for l in screen.split('\n') if l.strip()]
-            if lines:
-                print(f"{lines[-1]} ", end='', file=sys.stderr)
+            data = output_response.get('data', {})
+            screen = data.get('screen', '')
+            cursor_row = data.get('cursor', {}).get('row', 0)
+            lines = screen.split('\n')
+            if cursor_row < len(lines) and lines[cursor_row].strip():
+                print(f"{lines[cursor_row]} ", end='', file=sys.stderr)
                 sys.stderr.flush()
 
         try:
