@@ -162,6 +162,18 @@ fn test_password_with_interminai_pty() {
 
     thread::sleep(Duration::from_millis(500));
 
+    // Verify that the password was NOT echoed on the wrapper screen
+    let output = Command::new(interminai_bin())
+        .arg("output")
+        .arg("--socket")
+        .arg(&wrapper.socket_path)
+        .output()
+        .expect("Failed to get wrapper output");
+
+    let wrapper_screen = String::from_utf8_lossy(&output.stdout);
+    assert!(!wrapper_screen.contains("secret123"),
+            "Password should NOT be echoed on wrapper screen: {}", wrapper_screen);
+
     // Check that the original session received the password
     let output = Command::new(interminai_bin())
         .arg("output")
