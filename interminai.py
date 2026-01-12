@@ -910,7 +910,7 @@ def handle_client(client_sock, state):
         elif req_type == 'INPUT':
             response = handle_input(request.get('data'), state)
         elif req_type == 'STATUS':
-            response = handle_running(state)
+            response = handle_running(request.get('activity', False), state)
         elif req_type == 'STOP':
             response = handle_stop(state)
         elif req_type == 'WAIT':
@@ -977,16 +977,26 @@ def handle_input(data, state):
         return {'status': 'error', 'error': str(e)}
 
 
-def handle_running(state):
+def handle_running(activity_mode, state):
     """Handle STATUS request"""
     running = state.exit_code is None
-    return {
-        'status': 'ok',
-        'data': {
+
+    if activity_mode:
+        data = {
             'running': running,
-            'exit_code': state.exit_code
+            'activity': state.activity
         }
-    }
+        if state.exit_code is not None:
+            data['exit_code'] = state.exit_code
+        return {'status': 'ok', 'data': data}
+    else:
+        return {
+            'status': 'ok',
+            'data': {
+                'running': running,
+                'exit_code': state.exit_code
+            }
+        }
 
 
 def handle_stop(state):
@@ -1331,8 +1341,8 @@ def cmd_running(args):
 
 
 def cmd_status(args):
-    """Status command - get session status (human-readable)"""
-    request = {'type': 'STATUS'}
+    """Status command - get session status"""
+    request = {'type': 'STATUS', 'activity': args.activity}
     response = send_request(args.socket, request)
 
     if response['status'] == 'error':
@@ -1341,12 +1351,23 @@ def cmd_status(args):
 
     data = response['data']
     running = data.get('running', False)
-    print(f"Running: {str(running).lower()}")
 
-    if not running:
-        exit_code = data.get('exit_code')
-        if exit_code is not None:
-            print(f"Exit code: {exit_code}")
+    if args.activity:
+        # Verbose mode: print all status info
+        print(f"Running: {str(running).lower()}")
+        activity = data.get('activity', False)
+        print(f"Activity: {str(activity).lower()}")
+        if not running:
+            exit_code = data.get('exit_code')
+            if exit_code is not None:
+                print(f"Exit code: {exit_code}")
+    else:
+        # Simple mode: like 'running' command
+        if not running:
+            exit_code = data.get('exit_code')
+            if exit_code is not None:
+                print(exit_code)
+            sys.exit(1)
 
 
 def cmd_stop(args):
@@ -1479,6 +1500,7 @@ def main():
     # Status command
     status_parser = subparsers.add_parser('status', help='Get session status (human-readable)')
     status_parser.add_argument('--socket', required=True, help='Socket path')
+    status_parser.add_argument('--activity', action='store_true', help='Include activity information')
     status_parser.set_defaults(func=cmd_status)
 
     # Stop command
