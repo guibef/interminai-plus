@@ -123,12 +123,12 @@ All responses are JSON objects:
 
 ---
 
-### RUNNING - Check if process is still running
+### STATUS - Check process status
 
 **Request:**
 ```json
 {
-  "type": "RUNNING"
+  "type": "STATUS"
 }
 ```
 
@@ -394,7 +394,7 @@ This means:
 - WAIT will block all other commands until the process exits
 
 If you need to send input while a WAIT is pending, don't use WAIT - poll
-with RUNNING instead.
+with STATUS instead.
 
 ---
 
