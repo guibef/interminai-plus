@@ -1330,6 +1330,25 @@ def cmd_running(args):
         sys.exit(1)
 
 
+def cmd_status(args):
+    """Status command - get session status (human-readable)"""
+    request = {'type': 'STATUS'}
+    response = send_request(args.socket, request)
+
+    if response['status'] == 'error':
+        print(f"Error: {response.get('error', 'Unknown error')}", file=sys.stderr)
+        sys.exit(1)
+
+    data = response['data']
+    running = data.get('running', False)
+    print(f"Running: {str(running).lower()}")
+
+    if not running:
+        exit_code = data.get('exit_code')
+        if exit_code is not None:
+            print(f"Exit code: {exit_code}")
+
+
 def cmd_stop(args):
     """Stop command - stop the daemon"""
     request = {'type': 'STOP'}
@@ -1456,6 +1475,11 @@ def main():
     running_parser = subparsers.add_parser('running', help='Check if running')
     running_parser.add_argument('--socket', required=True, help='Socket path')
     running_parser.set_defaults(func=cmd_running)
+
+    # Status command
+    status_parser = subparsers.add_parser('status', help='Get session status (human-readable)')
+    status_parser.add_argument('--socket', required=True, help='Socket path')
+    status_parser.set_defaults(func=cmd_status)
 
     # Stop command
     stop_parser = subparsers.add_parser('stop', help='Stop the daemon')
