@@ -128,11 +128,14 @@ All responses are JSON objects:
 **Request:**
 ```json
 {
-  "type": "STATUS"
+  "type": "STATUS",
+  "activity": false
 }
 ```
 
-**Response (process running):**
+The `activity` field is optional (default: false).
+
+**Response (normal mode, activity=false):**
 ```json
 {
   "status": "ok",
@@ -152,6 +155,22 @@ All responses are JSON objects:
   }
 }
 ```
+
+**Response (activity mode, activity=true):**
+```json
+{
+  "status": "ok",
+  "data": {
+    "running": true,
+    "activity": true
+  }
+}
+```
+
+**Fields (activity mode):**
+- `activity`: true if PTY output was received since last WAIT with activity mode
+
+**Note:** Unlike WAIT, STATUS does not clear the activity flag.
 
 ---
 

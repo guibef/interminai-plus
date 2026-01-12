@@ -205,19 +205,27 @@ fi
 
 ## interminai status
 
-Get session status in human-readable format.
+Check process status. Without `--activity`, behaves like `running` command.
 
 ```bash
-interminai status --socket PATH
+interminai status --socket PATH [--activity]
 ```
 
-**Output:**
+**Options:**
+- `--activity` - Print verbose status information
+
+**Without `--activity`:**
+- Exit codes: `0` if running, `1` if exited (prints exit code to stdout)
+
+**With `--activity`:**
 ```
 Running: true
+Activity: true
 ```
 or when process has exited:
 ```
 Running: false
+Activity: false
 Exit code: 0
 ```
 
