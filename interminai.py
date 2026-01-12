@@ -909,7 +909,7 @@ def handle_client(client_sock, state):
             response = handle_output(request.get('format', 'ascii'), state)
         elif req_type == 'INPUT':
             response = handle_input(request.get('data'), state)
-        elif req_type == 'RUNNING':
+        elif req_type == 'STATUS':
             response = handle_running(state)
         elif req_type == 'STOP':
             response = handle_stop(state)
@@ -978,7 +978,7 @@ def handle_input(data, state):
 
 
 def handle_running(state):
-    """Handle RUNNING request"""
+    """Handle STATUS request"""
     running = state.exit_code is None
     return {
         'status': 'ok',
@@ -1314,8 +1314,8 @@ def cmd_input(args):
 
 
 def cmd_running(args):
-    """Running command - check if daemon is running"""
-    request = {'type': 'RUNNING'}
+    """Running command - check process status"""
+    request = {'type': 'STATUS'}
     response = send_request(args.socket, request)
 
     if response['status'] == 'error':
