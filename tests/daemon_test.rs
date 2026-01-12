@@ -41,7 +41,7 @@ fn test_daemon_mode_returns_immediately() {
 
     // Verify daemon is running
     Command::new(interminai_client_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg(socket_path.to_str().unwrap())
         .assert()
@@ -130,7 +130,7 @@ fn test_daemon_mode_survives_parent_exit() {
 
     // Daemon should still be accessible
     Command::new(interminai_client_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg(socket_path.to_str().unwrap())
         .assert()
@@ -178,7 +178,7 @@ fn test_auto_generated_socket_from_output() {
 
     // Verify daemon is running using the parsed socket
     Command::new(interminai_client_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg(socket_path)
         .assert()

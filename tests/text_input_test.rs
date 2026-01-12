@@ -187,7 +187,7 @@ fn test_text_flag_escape_sequence() {
 
     // Check that vim exited
     let output = Command::new(interminai_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg(&daemon.socket_path)
         .output()
@@ -278,7 +278,7 @@ fn test_text_flag_formfeed_escape() {
 
     // Just verify daemon is still running
     let output = Command::new(interminai_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg(&daemon.socket_path)
         .output()
@@ -458,7 +458,7 @@ fn test_text_flag_uppercase_escape() {
 
     // Check that vim exited
     let output = Command::new(interminai_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg(&daemon.socket_path)
         .output()

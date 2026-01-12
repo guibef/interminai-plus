@@ -195,7 +195,7 @@ fn test_output_requires_socket() {
 //
 //     // Verify daemon is actually running
 //     let running_output = Command::new(interminai_bin())
-//         .arg("running")
+//         .arg("status")
 //         .arg("--socket")
 //         .arg(&env.socket())
 //         .timeout(Duration::from_secs(5))
@@ -234,7 +234,7 @@ fn test_stop_requires_socket() {
 #[test]
 fn test_running_requires_socket() {
     let mut cmd = Command::new(interminai_bin());
-    cmd.arg("running")
+    cmd.arg("status")
         .assert()
         .failure()
         .stderr(predicate::str::contains("--socket"));
@@ -248,7 +248,7 @@ fn test_running_when_active() {
 
     // Check running status
     let mut cmd = Command::new(interminai_bin());
-    cmd.arg("running")
+    cmd.arg("status")
         .arg("--socket")
         .arg(&env.socket())
         .timeout(Duration::from_secs(2))
@@ -269,7 +269,7 @@ fn test_running_when_finished() {
 
     // Check running status
     let output = Command::new(interminai_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg(&env.socket())
         .timeout(Duration::from_secs(2))
@@ -305,7 +305,7 @@ fn test_running_after_stop() {
 
     // Check running status - should fail (not running)
     let result = Command::new(interminai_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg(&env.socket())
         .timeout(Duration::from_secs(2))
@@ -323,7 +323,7 @@ fn test_running_no_daemon() {
 
     // Try to check status without starting daemon
     let result = Command::new(interminai_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg(&env.socket())
         .timeout(Duration::from_secs(2))
@@ -409,7 +409,7 @@ fn test_kill_default_sigterm() {
 
     // Verify it's running
     Command::new(interminai_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg(&env.socket())
         .timeout(Duration::from_secs(2))
@@ -430,7 +430,7 @@ fn test_kill_default_sigterm() {
 
     // Should no longer be running
     let result = Command::new(interminai_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg(&env.socket())
         .timeout(Duration::from_secs(2))
@@ -464,7 +464,7 @@ fn test_kill_sigkill() {
 
     // Should no longer be running
     let result = Command::new(interminai_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg(&env.socket())
         .timeout(Duration::from_secs(2))
@@ -507,7 +507,7 @@ fn test_kill_sigint() {
 
     // Now check the exit code - should be 99 from the trap
     let output = Command::new(interminai_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg(&env.socket())
         .timeout(Duration::from_secs(2))
@@ -542,7 +542,7 @@ fn test_kill_numeric_signal_9() {
 
     // Should no longer be running
     let result = Command::new(interminai_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg(&env.socket())
         .timeout(Duration::from_secs(2))
@@ -575,7 +575,7 @@ fn test_kill_numeric_signal_15() {
 
     // Should no longer be running
     let result = Command::new(interminai_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg(&env.socket())
         .timeout(Duration::from_secs(2))
@@ -618,7 +618,7 @@ fn test_kill_numeric_signal_2() {
 
     // Now check the exit code - should be 88 from the trap
     let output = Command::new(interminai_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg(&env.socket())
         .timeout(Duration::from_secs(2))
@@ -882,7 +882,7 @@ fn test_client_dies_before_response() {
 
     // Daemon should still be responsive
     let output = Command::new(interminai_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg(&env.socket())
         .timeout(Duration::from_secs(2))
@@ -928,7 +928,7 @@ fn test_incomplete_request_daemon_survives() {
 
     // Daemon should still be alive and responsive
     let output = Command::new(interminai_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg(&env.socket())
         .timeout(Duration::from_secs(2))
@@ -981,7 +981,7 @@ fn test_invalid_request_gets_error_response() {
 
     // Daemon should still be alive
     let output = Command::new(interminai_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg(&env.socket())
         .timeout(Duration::from_secs(2))
@@ -1041,7 +1041,7 @@ fn test_multiple_clients_simultaneous() {
 
     // Daemon should still be responsive
     Command::new(interminai_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg(&env.socket())
         .timeout(Duration::from_secs(2))
@@ -1529,7 +1529,7 @@ fn test_vim_wq_exits() {
 
     // Verify vim is running
     Command::new(interminai_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg(&env.socket())
         .timeout(Duration::from_secs(2))
@@ -1563,7 +1563,7 @@ fn test_vim_wq_exits() {
 
     // Check that vim has exited
     let result = Command::new(interminai_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg(&env.socket())
         .timeout(Duration::from_secs(2))
@@ -1613,7 +1613,7 @@ fn test_vim_exits_eventually_after_quit() {
         thread::sleep(Duration::from_millis(200));
 
         let result = Command::new(interminai_bin())
-            .arg("running")
+            .arg("status")
             .arg("--socket")
             .arg(&env.socket())
             .timeout(Duration::from_secs(2))

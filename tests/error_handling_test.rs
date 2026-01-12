@@ -32,7 +32,7 @@ fn test_nonexistent_socket_input() {
 #[test]
 fn test_nonexistent_socket_running() {
     Command::new(interminai_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg("/tmp/this-socket-does-not-exist.sock")
         .timeout(Duration::from_secs(2))
@@ -204,7 +204,7 @@ fn test_nonexistent_command_exits_gracefully() {
 
     // Check that child process exited
     let output = Command::new(interminai_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg(socket.to_str().unwrap())
         .timeout(Duration::from_secs(2))

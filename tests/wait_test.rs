@@ -75,7 +75,7 @@ fn test_wait_interrupted_by_client_disconnect() {
     thread::sleep(Duration::from_millis(500));
 
     let running_output = Command::new(interminai_bin())
-        .arg("running")
+        .arg("status")
         .arg("--socket")
         .arg(socket_path.to_str().unwrap())
         .output()
