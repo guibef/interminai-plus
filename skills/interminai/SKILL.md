@@ -92,8 +92,8 @@ sleep 0.5
 ```
 
 This avoids repeatedly calling `output` when nothing has changed, saving context window
-space and reducing noise. The activity flag indicates PTY output was received since the
-last `wait --activity` call.
+space and reducing noise. The activity flag is set when PTY output is received and
+cleared by `status --activity` or `wait --activity`.
 
 ## Terminal Size
 
