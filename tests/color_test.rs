@@ -1,0 +1,262 @@
+use assert_cmd::Command;
+use std::thread;
+use std::time::Duration;
+use tempfile::TempDir;
+use std::path::PathBuf;
+
+mod common;
+use common::{interminai_bin, emulator_args, emulator};
+
+struct TestEnv {
+    _temp_dir: TempDir,
+    socket_path: PathBuf,
+}
+
+impl TestEnv {
+    fn new() -> Self {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let socket_path = temp_dir.path().join("test.sock");
+        Self {
+            _temp_dir: temp_dir,
+            socket_path,
+        }
+    }
+
+    fn socket(&self) -> String {
+        self.socket_path.to_str().unwrap().to_string()
+    }
+}
+
+struct DaemonHandle {
+    socket_path: String,
+}
+
+impl DaemonHandle {
+    /// Spawn a one-shot bash command that outputs escape sequences
+    fn spawn_printf(socket: &str, size: &str, printf_arg: &str) -> Self {
+        let cmd_str = format!("printf '{}'; sleep 5", printf_arg);
+
+        let mut cmd = std::process::Command::new(interminai_bin());
+        cmd.arg("start")
+            .args(emulator_args())
+            .arg("--socket")
+            .arg(socket)
+            .arg("--size")
+            .arg(size)
+            .arg("--")
+            .arg("bash")
+            .arg("-c")
+            .arg(&cmd_str);
+
+        let output = cmd.output().expect("Failed to start daemon");
+        if !output.status.success() {
+            panic!("Daemon failed to start: {}", String::from_utf8_lossy(&output.stderr));
+        }
+
+        thread::sleep(Duration::from_millis(500));
+
+        DaemonHandle {
+            socket_path: socket.to_string()
+        }
+    }
+
+    fn get_output(&self) -> String {
+        let output = Command::new(interminai_bin())
+            .arg("output")
+            .arg("--socket")
+            .arg(&self.socket_path)
+            .timeout(Duration::from_secs(2))
+            .output()
+            .expect("Failed to get output");
+        String::from_utf8_lossy(&output.stdout).to_string()
+    }
+
+    fn get_output_ansi(&self) -> String {
+        let output = Command::new(interminai_bin())
+            .arg("output")
+            .arg("--socket")
+            .arg(&self.socket_path)
+            .arg("--format")
+            .arg("ansi")
+            .timeout(Duration::from_secs(2))
+            .output()
+            .expect("Failed to get output");
+        String::from_utf8_lossy(&output.stdout).to_string()
+    }
+
+    fn stop(self) {
+        let _ = std::process::Command::new(interminai_bin())
+            .arg("stop")
+            .arg("--socket")
+            .arg(&self.socket_path)
+            .output();
+    }
+}
+
+/// Test that --format ascii returns plain text without ANSI codes
+#[test]
+fn test_format_ascii_no_color_codes() {
+    let env = TestEnv::new();
+    // Print red "Hello" then reset
+    let daemon = DaemonHandle::spawn_printf(&env.socket(), "80x24", "\\033[31mHello\\033[0m");
+
+    let output = daemon.get_output();
+    // ASCII format should NOT contain escape codes
+    assert!(!output.contains("\x1b["), "ASCII format should not contain ANSI codes");
+    assert!(output.contains("Hello"), "Output should contain 'Hello'");
+
+    daemon.stop();
+}
+
+/// Test that --format ansi returns ANSI color codes for named colors
+#[test]
+fn test_format_ansi_named_color() {
+    if emulator() == "custom" {
+        // Custom backend doesn't support colors
+        return;
+    }
+
+    let env = TestEnv::new();
+    // Print red "Hello" (31 = red foreground)
+    let daemon = DaemonHandle::spawn_printf(&env.socket(), "80x24", "\\033[31mHello\\033[0m");
+
+    let output = daemon.get_output_ansi();
+    // ANSI format should contain color code for red (31)
+    assert!(output.contains("\x1b["), "ANSI format should contain escape codes");
+    assert!(output.contains("31"), "Output should contain red color code (31)");
+    assert!(output.contains("Hello"), "Output should contain 'Hello'");
+
+    daemon.stop();
+}
+
+/// Test that --format ansi returns ANSI codes for bold text
+#[test]
+fn test_format_ansi_bold() {
+    if emulator() == "custom" {
+        return;
+    }
+
+    let env = TestEnv::new();
+    // Print bold "Bold" (1 = bold)
+    let daemon = DaemonHandle::spawn_printf(&env.socket(), "80x24", "\\033[1mBold\\033[0m");
+
+    let output = daemon.get_output_ansi();
+    assert!(output.contains("\x1b["), "ANSI format should contain escape codes");
+    // Bold is code 1
+    assert!(output.contains(";1") || output.contains("[1"), "Output should contain bold code (1)");
+    assert!(output.contains("Bold"), "Output should contain 'Bold'");
+
+    daemon.stop();
+}
+
+/// Test that --format ansi returns ANSI codes for 256-color palette
+#[test]
+fn test_format_ansi_256_color() {
+    if emulator() == "custom" {
+        return;
+    }
+
+    let env = TestEnv::new();
+    // Print with 256-color (38;5;202 = orange)
+    let daemon = DaemonHandle::spawn_printf(&env.socket(), "80x24", "\\033[38;5;202mOrange\\033[0m");
+
+    let output = daemon.get_output_ansi();
+    assert!(output.contains("\x1b["), "ANSI format should contain escape codes");
+    assert!(output.contains("38;5;202") || output.contains("38;5"), "Output should contain 256-color code");
+    assert!(output.contains("Orange"), "Output should contain 'Orange'");
+
+    daemon.stop();
+}
+
+/// Test that --format ansi returns ANSI codes for 24-bit RGB colors
+#[test]
+fn test_format_ansi_rgb_color() {
+    if emulator() == "custom" {
+        return;
+    }
+
+    let env = TestEnv::new();
+    // Print with 24-bit RGB (38;2;255;128;0 = orange RGB)
+    let daemon = DaemonHandle::spawn_printf(&env.socket(), "80x24", "\\033[38;2;255;128;0mRGB\\033[0m");
+
+    let output = daemon.get_output_ansi();
+    assert!(output.contains("\x1b["), "ANSI format should contain escape codes");
+    assert!(output.contains("38;2;255;128;0") || output.contains("38;2"), "Output should contain RGB color code");
+    assert!(output.contains("RGB"), "Output should contain 'RGB'");
+
+    daemon.stop();
+}
+
+/// Test that --format ansi includes background colors
+#[test]
+fn test_format_ansi_background_color() {
+    if emulator() == "custom" {
+        return;
+    }
+
+    let env = TestEnv::new();
+    // Print with red background (41 = red background)
+    let daemon = DaemonHandle::spawn_printf(&env.socket(), "80x24", "\\033[41mBG\\033[0m");
+
+    let output = daemon.get_output_ansi();
+    assert!(output.contains("\x1b["), "ANSI format should contain escape codes");
+    assert!(output.contains("41") || output.contains("48"), "Output should contain background color code");
+    assert!(output.contains("BG"), "Output should contain 'BG'");
+
+    daemon.stop();
+}
+
+/// Test that --format ansi works with multiple attributes
+#[test]
+fn test_format_ansi_multiple_attributes() {
+    if emulator() == "custom" {
+        return;
+    }
+
+    let env = TestEnv::new();
+    // Print bold red text (1;31)
+    let daemon = DaemonHandle::spawn_printf(&env.socket(), "80x24", "\\033[1;31mBoldRed\\033[0m");
+
+    let output = daemon.get_output_ansi();
+    assert!(output.contains("\x1b["), "ANSI format should contain escape codes");
+    assert!(output.contains("1"), "Output should contain bold code");
+    assert!(output.contains("31"), "Output should contain red code");
+    assert!(output.contains("BoldRed"), "Output should contain 'BoldRed'");
+
+    daemon.stop();
+}
+
+/// Test that custom emulator returns plain text even with --format ansi
+#[test]
+fn test_custom_emulator_no_color() {
+    if emulator() != "custom" {
+        // This test only makes sense for custom emulator
+        return;
+    }
+
+    let env = TestEnv::new();
+    let daemon = DaemonHandle::spawn_printf(&env.socket(), "80x24", "\\033[31mHello\\033[0m");
+
+    let output = daemon.get_output_ansi();
+    // Custom backend should NOT contain ANSI codes even with --format ansi
+    assert!(!output.contains("\x1b[31m"), "Custom backend should not emit color codes");
+    assert!(output.contains("Hello"), "Output should contain 'Hello'");
+
+    daemon.stop();
+}
+
+/// Test that plain text without colors works with --format ansi
+#[test]
+fn test_format_ansi_plain_text() {
+    let env = TestEnv::new();
+    let daemon = DaemonHandle::spawn_printf(&env.socket(), "80x24", "Plain text");
+
+    let ascii_output = daemon.get_output();
+    let ansi_output = daemon.get_output_ansi();
+
+    // Both should contain the text
+    assert!(ascii_output.contains("Plain text"));
+    assert!(ansi_output.contains("Plain text"));
+
+    daemon.stop();
+}
