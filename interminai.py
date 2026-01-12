@@ -384,6 +384,10 @@ class Screen:
         """Render the screen as a string"""
         return '\n'.join(''.join(row) for row in self.cells)
 
+    def render_ansi(self):
+        """Render with ANSI codes - custom backend doesn't support colors, returns plain text"""
+        return self.render()
+
 
 class ExtendedPyteScreen(pyte.Screen):
     """Extended pyte Screen with additional CSI sequence methods"""
@@ -505,6 +509,125 @@ class PyteScreen:
     def render(self):
         """Render the screen as a string"""
         return '\n'.join(self._screen.display)
+
+    def render_ansi(self):
+        """Render the screen with ANSI color codes"""
+        lines = []
+        for y in range(self.rows):
+            line = ''
+            current_fg = 'default'
+            current_bg = 'default'
+            current_attrs = (False, False, False, False, False, False)  # bold, italics, underscore, strikethrough, reverse, blink
+
+            for x in range(self.cols):
+                char = self._screen.buffer[y][x]
+                attrs = (char.bold, char.italics, char.underscore,
+                         char.strikethrough, char.reverse, char.blink)
+
+                # Check if we need to emit SGR codes
+                if char.fg != current_fg or char.bg != current_bg or attrs != current_attrs:
+                    sgr = self._build_sgr(char.fg, char.bg, attrs)
+                    if sgr:
+                        line += sgr
+                    current_fg = char.fg
+                    current_bg = char.bg
+                    current_attrs = attrs
+
+                line += char.data
+
+            # Reset at end of line if we changed attributes
+            if current_fg != 'default' or current_bg != 'default' or any(current_attrs):
+                line += '\x1b[0m'
+
+            lines.append(line.rstrip())
+
+        return '\n'.join(lines)
+
+    def _build_sgr(self, fg, bg, attrs):
+        """Build ANSI SGR sequence from pyte color and attributes"""
+        codes = ['0']  # Start with reset
+
+        # Attributes
+        bold, italics, underscore, strikethrough, reverse, blink = attrs
+        if bold:
+            codes.append('1')
+        if italics:
+            codes.append('3')
+        if underscore:
+            codes.append('4')
+        if blink:
+            codes.append('5')
+        if reverse:
+            codes.append('7')
+        if strikethrough:
+            codes.append('9')
+
+        # Foreground color
+        fg_code = self._color_to_ansi(fg, is_foreground=True)
+        if fg_code:
+            codes.append(fg_code)
+
+        # Background color
+        bg_code = self._color_to_ansi(bg, is_foreground=False)
+        if bg_code:
+            codes.append(bg_code)
+
+        if len(codes) == 1 and codes[0] == '0':
+            return ''  # No attributes, skip
+
+        return f'\x1b[{";".join(codes)}m'
+
+    def _color_to_ansi(self, color, is_foreground):
+        """Convert pyte color to ANSI code"""
+        if color == 'default':
+            return None
+
+        # Named colors
+        named_colors = {
+            'black': (30, 40),
+            'red': (31, 41),
+            'green': (32, 42),
+            'yellow': (33, 43),
+            'blue': (34, 44),
+            'magenta': (35, 45),
+            'cyan': (36, 46),
+            'white': (37, 47),
+            'brightblack': (90, 100),
+            'brightred': (91, 101),
+            'brightgreen': (92, 102),
+            'brightyellow': (93, 103),
+            'brightblue': (94, 104),
+            'brightmagenta': (95, 105),
+            'brightcyan': (96, 106),
+            'brightwhite': (97, 107),
+        }
+
+        color_lower = color.lower()
+        if color_lower in named_colors:
+            fg_code, bg_code = named_colors[color_lower]
+            return str(fg_code if is_foreground else bg_code)
+
+        # Check for hex color (6 or 8 chars without #)
+        if len(color) == 6 or len(color) == 8:
+            try:
+                r = int(color[0:2], 16)
+                g = int(color[2:4], 16)
+                b = int(color[4:6], 16)
+                prefix = '38;2' if is_foreground else '48;2'
+                return f'{prefix};{r};{g};{b}'
+            except ValueError:
+                pass
+
+        # Check for indexed color (number as string)
+        try:
+            idx = int(color)
+            if 0 <= idx <= 255:
+                prefix = '38;5' if is_foreground else '48;5'
+                return f'{prefix};{idx}'
+        except ValueError:
+            pass
+
+        return None
 
 
 class DaemonState:
@@ -783,7 +906,7 @@ def handle_client(client_sock, state):
 
         # Handle request
         if req_type == 'OUTPUT':
-            response = handle_output(state)
+            response = handle_output(request.get('format', 'ascii'), state)
         elif req_type == 'INPUT':
             response = handle_input(request.get('data'), state)
         elif req_type == 'RUNNING':
@@ -818,12 +941,17 @@ def handle_client(client_sock, state):
             pass
 
 
-def handle_output(state):
+def handle_output(fmt, state):
     """Handle OUTPUT request"""
+    if fmt == 'ansi':
+        screen_text = state.screen.render_ansi()
+    else:
+        screen_text = state.screen.render()
+
     return {
         'status': 'ok',
         'data': {
-            'screen': state.screen.render(),
+            'screen': screen_text,
             'cursor': {
                 'row': state.screen.cursor_row,
                 'col': state.screen.cursor_col
