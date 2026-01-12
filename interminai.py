@@ -1323,23 +1323,6 @@ def cmd_input(args):
         sys.exit(1)
 
 
-def cmd_running(args):
-    """Running command - check process status"""
-    request = {'type': 'STATUS'}
-    response = send_request(args.socket, request)
-
-    if response['status'] == 'error':
-        print(f"Error: {response.get('error', 'Unknown error')}", file=sys.stderr)
-        sys.exit(1)
-
-    data = response['data']
-    if not data['running']:
-        # Print exit code when process is finished
-        if data['exit_code'] is not None:
-            print(data['exit_code'])
-        sys.exit(1)
-
-
 def cmd_status(args):
     """Status command - get session status"""
     request = {'type': 'STATUS', 'activity': args.activity}
@@ -1492,13 +1475,8 @@ def main():
                               help='Read password from terminal with echo disabled')
     input_parser.set_defaults(func=cmd_input)
 
-    # Running command
-    running_parser = subparsers.add_parser('running', help='Check if running')
-    running_parser.add_argument('--socket', required=True, help='Socket path')
-    running_parser.set_defaults(func=cmd_running)
-
     # Status command
-    status_parser = subparsers.add_parser('status', help='Get session status (human-readable)')
+    status_parser = subparsers.add_parser('status', help='Check process status')
     status_parser.add_argument('--socket', required=True, help='Socket path')
     status_parser.add_argument('--activity', action='store_true', help='Include activity information')
     status_parser.set_defaults(func=cmd_status)
