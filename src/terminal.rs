@@ -23,6 +23,12 @@ pub trait TerminalEmulator: Send {
     /// Trailing whitespace on each line is trimmed.
     fn get_screen_content(&self) -> String;
 
+    /// Get the screen content with ANSI color codes embedded.
+    /// Default implementation returns plain text (same as get_screen_content).
+    fn get_screen_content_ansi(&self) -> String {
+        self.get_screen_content()
+    }
+
     /// Get cursor position (row, col) - 0-indexed
     fn cursor_position(&self) -> (usize, usize);
 

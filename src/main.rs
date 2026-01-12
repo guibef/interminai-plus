@@ -100,7 +100,7 @@ enum Commands {
         #[arg(long, required = true)]
         socket: String,
 
-        /// Output format (ascii or json)
+        /// Output format (ascii or ansi)
         #[arg(long, default_value = "ascii")]
         format: String,
 
@@ -712,12 +712,15 @@ fn handle_input(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Res
 }
 
 fn handle_output(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Response {
-    let _format = data.get("format").and_then(|v| v.as_str()).unwrap_or("ascii");
+    let format = data.get("format").and_then(|v| v.as_str()).unwrap_or("ascii");
 
     let mut state = state.lock().unwrap();
     state.read_pty_output();
 
-    let screen_text = state.terminal.get_screen_content();
+    let screen_text = match format {
+        "ansi" => state.terminal.get_screen_content_ansi(),
+        _ => state.terminal.get_screen_content(),
+    };
     let (cursor_row, cursor_col) = state.terminal.cursor_position();
     let (rows, cols) = state.terminal.dimensions();
 
