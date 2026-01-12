@@ -10,6 +10,9 @@ const SKILL_PATH: &str = "skills/interminai/SKILL.md";
 const NAME_MAX_CHARS: usize = 64;
 const DESCRIPTION_MAX_CHARS: usize = 1024;
 const BODY_MAX_LINES: usize = 500;
+// Token limit is 5000; roughly 1 token per word, ~5 chars per word
+const BODY_MAX_WORDS: usize = 5000;
+const BODY_MAX_CHARS: usize = 25000;
 
 #[test]
 fn test_skill_name_within_limit() {
@@ -56,6 +59,40 @@ fn test_skill_body_within_limit() {
         line_count <= BODY_MAX_LINES,
         "Skill body exceeds {} line limit: {} lines",
         BODY_MAX_LINES, line_count
+    );
+}
+
+#[test]
+fn test_skill_body_words_within_limit() {
+    let content = fs::read_to_string(SKILL_PATH)
+        .expect("Failed to read SKILL.md");
+
+    let body = extract_body(&content)
+        .expect("Failed to extract body from SKILL.md");
+
+    let word_count = body.split_whitespace().count();
+
+    assert!(
+        word_count <= BODY_MAX_WORDS,
+        "Skill body exceeds {} word limit: {} words",
+        BODY_MAX_WORDS, word_count
+    );
+}
+
+#[test]
+fn test_skill_body_chars_within_limit() {
+    let content = fs::read_to_string(SKILL_PATH)
+        .expect("Failed to read SKILL.md");
+
+    let body = extract_body(&content)
+        .expect("Failed to extract body from SKILL.md");
+
+    let char_count = body.len();
+
+    assert!(
+        char_count <= BODY_MAX_CHARS,
+        "Skill body exceeds {} char limit: {} chars",
+        BODY_MAX_CHARS, char_count
     );
 }
 
