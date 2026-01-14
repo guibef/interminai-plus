@@ -187,25 +187,13 @@ using `--emulator custom` you will get plain text even with `--format ansi`.
 Check process status.
 
 ```bash
-interminai status --socket PATH [--activity]
+interminai status --socket PATH [--quiet]
 ```
 
 **Options:**
-- `--activity` - Print verbose status information
+- `--quiet` - Just exit status (0 if running, 1 if exited)
 
-**Without `--activity`:**
-- Exit codes: `0` if running, `1` if exited (prints exit code to stdout)
-
-**Example:**
-```bash
-if interminai status --socket /tmp/app.sock; then
-    echo "Still running"
-else
-    echo "Process exited"
-fi
-```
-
-**With `--activity`:**
+**Default output:**
 ```
 Running: true
 Activity: true
@@ -217,47 +205,65 @@ Activity: false
 Exit code: 0
 ```
 
+**With `--quiet`:**
+- Exit codes: `0` if running, `1` if exited (prints exit code to stdout)
+
+**Example:**
+```bash
+if interminai status --socket /tmp/app.sock --quiet; then
+    echo "Still running"
+else
+    echo "Process exited"
+fi
+```
+
 ## interminai wait
 
 Block until the child process exits, or until activity occurs.
 
 ```bash
-interminai wait --socket PATH [--activity]
+interminai wait --socket PATH [--quiet]
 ```
 
 **Options:**
-- `--activity` - Wait for activity (any output from PTY or process exit) instead of waiting for exit
+- `--quiet` - Wait for exit only, print exit code
 
-**Output:**
-- Without `--activity`: Exit code of child process (printed to stdout)
-- With `--activity`: Reports both terminal activity and exit status:
-  ```
-  Terminal activity: true
-  Application exited: false
-  ```
-  The activity flag is cleared after reading.
+**Default output:**
+Reports both terminal activity and exit status:
+```
+Terminal activity: true
+Application exited: false
+```
+The activity flag is cleared after reading.
+
+**With `--quiet`:**
+- Exit code of child process (printed to stdout)
 
 **Examples:**
 ```bash
-# Wait for process to exit
-interminai wait --socket /tmp/vim.sock
-echo "Vim exited with code: $?"
-
 # Wait for any activity (output or exit)
-interminai wait --socket /tmp/app.sock --activity
+interminai wait --socket /tmp/app.sock
 # Output:
 #   Terminal activity: true
 #   Application exited: false
+
+# Wait for process to exit only
+interminai wait --socket /tmp/vim.sock --quiet
+echo "Vim exited with code: $?"
 ```
 
-**Activity triggers:**
+**Wait triggers:**
 - Any output received from the PTY (the application printed something)
 - Child process exited
 
-**Use cases for --activity:**
+**Use cases for default mode:**
 - Detect when a long-running command finishes or produces output
 - Wait for a prompt to appear before sending input
 - Monitor for error conditions that produce output
+
+**Use cases for --quiet mode:**
+- Solely wait for program to exit, ignoring its output
+
 
 ## interminai kill
 

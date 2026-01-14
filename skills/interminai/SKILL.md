@@ -50,10 +50,10 @@ Just read the socket path from the `start` output and use it directly - no need 
 - `start -- COMMAND` - Start application (prints socket path on stdout)
 - `input --socket PATH --text 'text'` - Send input (escapes: `\r` `\n` `\e` `\t` `\xHH` see also: "Pressing Enter")
 - `output --socket PATH` - Get screen (add `--cursor print` for cursor position)
-- `status --socket PATH` - Check if running (exit 0) or exited (exit 1, prints exit code)
-- `status --socket PATH --activity` - Check running state and activity flag
-- `wait --socket PATH` - Wait for process to exit (prints exit code)
-- `wait --socket PATH --activity` - Wait for activity (any output), prints activity and exit status
+- `status --socket PATH` - Check running state and activity flag
+- `status --socket PATH --quiet` - Check if running (exit 0) or exited (exit 1, prints exit code)
+- `wait --socket PATH` - Wait for activity (any output), prints activity and exit status
+- `wait --socket PATH --quiet` - Wait for process to exit (prints exit code)
 - `stop --socket PATH` - Stop session (also cleans up auto-generated socket)
 
 ## Key Best Practices
@@ -64,16 +64,16 @@ Just read the socket path from the `start` output and use it directly - no need 
 4. **Add delays**: `sleep 0.2` after input for processing
 5. **Set GIT_EDITOR=vim** for git rebase -i, git commit, etc.
 6. **If screen garbled**: Send `\f` (Ctrl+L) to redraw
-7. **Wait for updates**: If screen isn't updating, use `timeout 10 interminai wait --socket PATH --activity` instead of repeatedly calling `output`
+7. **Wait for updates**: If screen isn't updating, use `timeout 10 interminai wait --socket PATH` instead of repeatedly calling `output`
 
 ## Checking Activity (Recommended for LLMs)
 
-Use `status --activity` to check if there's new terminal output without blocking. This is
+Use `status` to check if there's new terminal output without blocking. This is
 useful if you are running e.g. LLMs like Claude or Codex and want to decide
 whether to fetch new output or wait longer.
 
 ```bash
-./scripts/interminai status --socket /tmp/interminai-xxx/socket --activity
+./scripts/interminai status --socket /tmp/interminai-xxx/socket
 # Output:
 #   Running: true
 #   Activity: true
@@ -87,14 +87,14 @@ whether to fetch new output or wait longer.
 sleep 0.5
 
 # Check activity without blocking
-./scripts/interminai status --socket $SOCK --activity
+./scripts/interminai status --socket $SOCK
 # If Activity: true, fetch output
 # If Activity: false, wait longer or send more input
 ```
 
 This avoids repeatedly calling `output` when nothing has changed, saving context window
 space and reducing noise. The activity flag is set when PTY output is received and
-cleared by `status --activity` or `wait --activity`.
+cleared by `status` or `wait`.
 
 ## Terminal Size
 

@@ -518,7 +518,7 @@ sleep 0.1
 # === Main supervision loop: review, iterate, approve ===
 while true; do
     # Wait for subagent to produce output
-    timeout 60 ./scripts/interminai wait --socket "$SOCK" --activity
+    timeout 60 ./scripts/interminai wait --socket "$SOCK"
 
     # Review what the subagent wants to do
     OUTPUT=`./scripts/interminai output --socket "$SOCK"`
@@ -604,7 +604,7 @@ echo "=== Subagent session complete ==="
 **Key Points:**
 - Run any CLI LLM as a subagent: cursor-agent, codex, aider, claude, etc.
 - Use larger terminal (`--size 120x40`) to see more context from the subagent
-- Use `wait --activity` with timeout to wait for subagent output without busy-polling
+- Use `wait` with timeout to wait for subagent output without busy-polling
 - Review the subagent's proposed actions before approving with `y` or rejecting with `n`
 - Provide feedback to iterate: reject action, then send instructions for improvement
 - Direct the subagent with "proceed to the next step" when ready to continue
