@@ -1,6 +1,6 @@
 ---
 name: interminai
-description: Control interactive terminal applications like vim, git rebase -i, git add -i, git add -p, apt, rclone config, sudo, and TUI apps. Can also supervise another CLI LLM (cursor-agent, codex, etc.) - approve or reject its actions by pressing y/n at confirmation prompts. Use when you need to interact with applications that require keyboard input, show prompts, menus, or have full-screen interfaces. Also use when commands fail or hang with errors like "Input is not a terminal" or "Output is not a terminal". Better than application specific hacks such as GIT_SEQUENCE_EDITOR or bypassing interactivity through file use.
+description: Control interactive terminal applications like vim, git rebase -i, git add -i, git add -p, apt, rclone config, sudo, w3m, and TUI apps. Can also supervise another CLI LLM (cursor-agent, codex, etc.) - approve or reject its actions by pressing y/n at confirmation prompts. Use when you need to interact with applications that require keyboard input, show prompts, menus, or have full-screen interfaces. Also use when commands fail or hang with errors like "Input is not a terminal" or "Output is not a terminal". Better than application specific hacks such as GIT_SEQUENCE_EDITOR or bypassing interactivity through file use.
 allowed-tools: Shell
 license: See LICENSE file
 metadata:
@@ -17,7 +17,7 @@ A terminal proxy for interactive CLI applications. See [examples.md](examples.md
 
 ## When to Use
 
-**Use for interactive commands** that wait for input, show menus/prompts, or use full-screen interfaces (vim, git rebase -i, htop, apt).
+**Use for interactive commands** that wait for input, show menus/prompts, or use full-screen interfaces (vim, git rebase -i, htop, apt, w3m).
 
 **Use if you get errors like this "Warning: Output is not to a terminal" or "Warning: Input is not from a terminal".
 
