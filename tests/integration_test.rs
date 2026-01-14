@@ -270,6 +270,7 @@ fn test_running_when_finished() {
     // Check running status
     let output = Command::new(interminai_bin())
         .arg("status")
+        .arg("--quiet")
         .arg("--socket")
         .arg(&env.socket())
         .timeout(Duration::from_secs(2))
@@ -379,6 +380,7 @@ fn test_wait_already_finished() {
     // Wait should return immediately with exit code
     let output = Command::new(interminai_bin())
         .arg("wait")
+        .arg("--quiet")
         .arg("--socket")
         .arg(&env.socket())
         .timeout(Duration::from_secs(2))
@@ -431,6 +433,7 @@ fn test_kill_default_sigterm() {
     // Should no longer be running
     let result = Command::new(interminai_bin())
         .arg("status")
+        .arg("--quiet")
         .arg("--socket")
         .arg(&env.socket())
         .timeout(Duration::from_secs(2))
@@ -465,6 +468,7 @@ fn test_kill_sigkill() {
     // Should no longer be running
     let result = Command::new(interminai_bin())
         .arg("status")
+        .arg("--quiet")
         .arg("--socket")
         .arg(&env.socket())
         .timeout(Duration::from_secs(2))
@@ -543,6 +547,7 @@ fn test_kill_numeric_signal_9() {
     // Should no longer be running
     let result = Command::new(interminai_bin())
         .arg("status")
+        .arg("--quiet")
         .arg("--socket")
         .arg(&env.socket())
         .timeout(Duration::from_secs(2))
@@ -576,6 +581,7 @@ fn test_kill_numeric_signal_15() {
     // Should no longer be running
     let result = Command::new(interminai_bin())
         .arg("status")
+        .arg("--quiet")
         .arg("--socket")
         .arg(&env.socket())
         .timeout(Duration::from_secs(2))
@@ -1614,6 +1620,7 @@ fn test_vim_exits_eventually_after_quit() {
 
         let result = Command::new(interminai_bin())
             .arg("status")
+            .arg("--quiet")
             .arg("--socket")
             .arg(&env.socket())
             .timeout(Duration::from_secs(2))

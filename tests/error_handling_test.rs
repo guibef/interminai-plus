@@ -205,6 +205,7 @@ fn test_nonexistent_command_exits_gracefully() {
     // Check that child process exited
     let output = Command::new(interminai_bin())
         .arg("status")
+        .arg("--quiet")
         .arg("--socket")
         .arg(socket.to_str().unwrap())
         .timeout(Duration::from_secs(2))
