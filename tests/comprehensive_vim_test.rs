@@ -110,6 +110,7 @@ fn get_screen(socket: &str) -> String {
         .arg("output")
         .arg("--socket")
         .arg(socket)
+        .arg("--no-color")
         .timeout(Duration::from_secs(2))
         .output()
         .expect("Failed to get screen");
