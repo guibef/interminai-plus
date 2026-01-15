@@ -100,9 +100,13 @@ enum Commands {
         #[arg(long, required = true)]
         socket: String,
 
-        /// Output format (ascii or ansi)
-        #[arg(long, default_value = "ascii")]
-        format: String,
+        /// Enable color output (default)
+        #[arg(long)]
+        color: bool,
+
+        /// Disable color output (plain text, useful for grep/head)
+        #[arg(long)]
+        no_color: bool,
 
         /// Cursor display mode (none, inverse, print, both)
         #[arg(long, default_value = "none")]
@@ -1232,7 +1236,11 @@ fn main() -> Result<()> {
                 std::process::exit(1);
             }
         }
-        Commands::Output { socket, format, cursor } => {
+        Commands::Output { socket, color, no_color, cursor } => {
+            // Default is color (ansi), --no-color disables it
+            let format = if no_color { "ascii" } else { "ansi" };
+            let _ = color; // --color is just for explicitness, default is already color
+
             let request = serde_json::json!({
                 "type": "OUTPUT",
                 "format": format
