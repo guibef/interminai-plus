@@ -2,7 +2,7 @@
 .PHONY: install-skill install-skill-rust install-skill-python install-skill-impl install-atomic
 .PHONY: install-claude install-claude-rust install-claude-python
 .PHONY: install-codex install-codex-rust install-codex-python
-.PHONY: install-mcp install-mcp-rust install-mcp-python
+.PHONY: install-mcp install-mcp-rust install-mcp-python install-cursor
 .PHONY: install-tool-rust install-tool-python
 .PHONY: test test-rust test-python test-xterm test-custom test-skill
 .PHONY: demo demo-gdb
@@ -21,9 +21,10 @@ help: ## Show this help message
 	@echo "  make install-codex       - Install Rust skill to ~/.codex/skills/ for Codex (default)"
 	@echo "  make install-codex-rust  - Install Rust skill to ~/.codex/skills/ for Codex"
 	@echo "  make install-codex-python - Install Python skill to ~/.codex/skills/ for Codex"
-	@echo "  make install-mcp         - Install MCP server to ~/.mcp/skills/ for cursor-agent etc"
+	@echo "  make install-mcp         - Install MCP server to ~/.mcp/skills/ (manual config)"
 	@echo "  make install-mcp-rust    - Install Rust MCP server"
 	@echo "  make install-mcp-python  - Install Python MCP server"
+	@echo "  make install-cursor      - Install MCP server and configure cursor-agent"
 	@echo "  make test                 - Run all tests (both emulators, both implementations)"
 	@echo "  make test-rust            - Run Rust tests with both emulators"
 	@echo "  make test-python          - Run Python tests with both emulators"
@@ -96,10 +97,24 @@ install-mcp-impl: install-atomic
 	@cp mcp_server.py $(DST)/interminai/
 	@chmod +x $(DST)/interminai/mcp_server.py
 	@echo ""
-	@echo "MCP server installed. To configure cursor-agent, add to ~/.cursor/mcp.json:"
-	@echo '  {"mcpServers": {"interminai": {"command": "$(HOME)/.mcp/skills/interminai/mcp_server.py"}}}'
+	@echo "MCP server installed to $(DST)/interminai/"
+	@echo "Run 'make install-cursor' to configure cursor-agent automatically."
+
+install-cursor: install-mcp ## Install MCP server and configure cursor-agent
+	@mkdir -p ~/.cursor
+	@MCP_JSON=~/.cursor/mcp.json; \
+	MCP_PATH="$(HOME)/.mcp/skills/interminai/mcp_server.py"; \
+	if [ ! -f "$$MCP_JSON" ]; then \
+		echo '{"mcpServers": {"interminai": {"command": "'"$$MCP_PATH"'"}}}' > "$$MCP_JSON"; \
+		echo "Created $$MCP_JSON with interminai configured"; \
+	elif grep -q '"interminai"' "$$MCP_JSON" 2>/dev/null; then \
+		echo "interminai already configured in $$MCP_JSON"; \
+	else \
+		python3 -c "import json; f='$$MCP_JSON'; d=json.load(open(f)); d.setdefault('mcpServers',{})['interminai']={'command':'$$MCP_PATH'}; json.dump(d,open(f,'w'),indent=2)"; \
+		echo "Added interminai to $$MCP_JSON"; \
+	fi
 	@echo ""
-	@echo "Then enable with: cursor-agent mcp enable interminai"
+	@echo "Enable with: cursor-agent mcp enable interminai"
 
 install-atomic: build
 	@test -n "$(DST)"
