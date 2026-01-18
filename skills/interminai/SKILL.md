@@ -225,10 +225,16 @@ sleep 0.5
 ./scripts/interminai wait --socket /tmp/interminai-xxx/socket
 ```
 
-**Tip**: Output includes colors by default. Use `--no-color` when piping to grep/head:
+**Piping output**: By default, output includes colors - do NOT use `--no-color` for normal viewing.
+Only add `--no-color` when piping to grep/head/tail to avoid ANSI escape corruption:
 
 ```bash
-./scripts/interminai output --socket /tmp/interminai-xxx/socket --no-color | head -5
+# Normal viewing - no --no-color flag:
+./scripts/interminai output --socket /tmp/interminai-xxx/socket
+
+# Piping to grep/head/tail - add --no-color:
+./scripts/interminai output --socket /tmp/interminai-xxx/socket --no-color | grep pattern
+./scripts/interminai output --socket /tmp/interminai-xxx/socket --no-color | tail -5
 ```
 
 See [reference.md](reference.md) for full command documentation.
