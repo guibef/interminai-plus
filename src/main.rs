@@ -1365,13 +1365,44 @@ fn main() -> Result<()> {
                 // Print detected elements if vom was requested
                 if vom {
                     if let Some(elements) = data.get("elements").and_then(|v| v.as_array()) {
-                        if !elements.is_empty() {
-                            println!("\nDetected Elements:");
-                            for element in elements {
+                        let filtered_elements: Vec<_> = elements.iter()
+                            .filter(|e| e.get("role").and_then(|r| r.as_str()) != Some("StaticText"))
+                            .collect();
+
+                        if !filtered_elements.is_empty() {
+                            println!("Elements:");
+                            for element in filtered_elements {
                                 let id = element.get("id").and_then(|v| v.as_str()).unwrap_or("?");
                                 let role = element.get("role").and_then(|v| v.as_str()).unwrap_or("?");
                                 let text = element.get("text").and_then(|v| v.as_str()).unwrap_or("");
-                                println!("  {} [{}]: \"{}\"", id, role, text);
+                                let bounds = element.get("bounds");
+                                let x = bounds.and_then(|b| b.get("x")).and_then(|v| v.as_u64()).unwrap_or(0);
+                                let y = bounds.and_then(|b| b.get("y")).and_then(|v| v.as_u64()).unwrap_or(0);
+                                let selected = element.get("selected").and_then(|v| v.as_bool()).unwrap_or(false);
+
+                                let role_str = match role {
+                                    "Button" => "button",
+                                    "Tab" => "tab",
+                                    "Input" => "input",
+                                    "Checkbox" => "checkbox",
+                                    "MenuItem" => "menuitem",
+                                    "Status" => "status",
+                                    "ToolBlock" => "toolblock",
+                                    "PromptMarker" => "prompt",
+                                    "ProgressBar" => "progressbar",
+                                    "Link" => "link",
+                                    "ErrorMessage" => "error",
+                                    "DiffLine" => "diff",
+                                    "CodeBlock" => "codeblock",
+                                    "Panel" => "panel",
+                                    _ => role,
+                                };
+
+                                print!("{} [{}:{}] ({},{})", id, role_str, text, y, x);
+                                if selected {
+                                    print!(" *focused*");
+                                }
+                                println!();
                             }
                         }
                     }

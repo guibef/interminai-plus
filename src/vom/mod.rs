@@ -36,7 +36,7 @@ pub struct VomRect {
     pub height: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Role {
     Button,
     Tab,
@@ -53,6 +53,28 @@ pub enum Role {
     ErrorMessage,
     DiffLine,
     CodeBlock,
+}
+
+impl std::fmt::Display for Role {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Role::Button => write!(f, "button"),
+            Role::Tab => write!(f, "tab"),
+            Role::Input => write!(f, "input"),
+            Role::StaticText => write!(f, "text"),
+            Role::Panel => write!(f, "panel"),
+            Role::Checkbox => write!(f, "checkbox"),
+            Role::MenuItem => write!(f, "menuitem"),
+            Role::Status => write!(f, "status"),
+            Role::ToolBlock => write!(f, "toolblock"),
+            Role::PromptMarker => write!(f, "prompt"),
+            Role::ProgressBar => write!(f, "progressbar"),
+            Role::Link => write!(f, "link"),
+            Role::ErrorMessage => write!(f, "error"),
+            Role::DiffLine => write!(f, "diff"),
+            Role::CodeBlock => write!(f, "codeblock"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

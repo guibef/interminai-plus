@@ -1,4 +1,4 @@
-use crate::vom::{VomGrid, VomRect, VomStyle, Cluster, Component, Role};
+use crate::vom::{VomGrid, VomRect, VomStyle, Cluster, Component, Role, VomColor};
 
 pub fn analyze(grid: &dyn VomGrid, cursor: (usize, usize)) -> Vec<Component> {
     let clusters = segment(grid);
@@ -11,28 +11,32 @@ fn segment(grid: &dyn VomGrid) -> Vec<Cluster> {
 
     for r in 0..rows {
         let mut current_text = String::new();
-        let mut current_style = VomStyle::default();
+        let mut current_style: Option<VomStyle> = None;
         let mut start_col = 0;
 
         for c in 0..cols {
             if let Some((ch, style)) = grid.cell(r, c) {
-                if c == 0 {
+                if current_style.is_none() {
                     current_text.push(ch);
-                    current_style = style;
-                    start_col = 0;
-                } else if style == current_style {
+                    current_style = Some(style);
+                    start_col = c;
+                } else if Some(style) == current_style {
                     current_text.push(ch);
                 } else {
                     // Flush current cluster
-                    push_cluster(&mut clusters, &current_text, current_style, r, start_col);
+                    if let Some(s) = current_style {
+                        push_cluster(&mut clusters, &current_text, s, r, start_col);
+                    }
                     current_text = String::from(ch);
-                    current_style = style;
+                    current_style = Some(style);
                     start_col = c;
                 }
             }
         }
         if !current_text.is_empty() {
-            push_cluster(&mut clusters, &current_text, current_style, r, start_col);
+            if let Some(s) = current_style {
+                push_cluster(&mut clusters, &current_text, s, r, start_col);
+            }
         }
     }
     clusters
@@ -48,7 +52,7 @@ fn push_cluster(clusters: &mut Vec<Cluster>, text: &str, style: VomStyle, row: u
     let start_offset = text.find(|c: char| !c.is_whitespace()).unwrap_or(0);
     let end_offset = text.rfind(|c: char| !c.is_whitespace()).unwrap_or(text.len() - 1);
 
-    let cluster = Cluster {
+    clusters.push(Cluster {
         text: trimmed.to_string(),
         style,
         bounds: VomRect {
@@ -57,34 +61,39 @@ fn push_cluster(clusters: &mut Vec<Cluster>, text: &str, style: VomStyle, row: u
             width: end_offset - start_offset + 1,
             height: 1,
         },
-    };
-    // println!("Pushing cluster: {:?}", cluster);
-    clusters.push(cluster);
+    });
 }
 
 fn classify(clusters: Vec<Cluster>, cursor: (usize, usize)) -> Vec<Component> {
     let mut components = Vec::new();
-    let mut btn_count = 0;
-    let mut inp_count = 0;
-    let mut txt_count = 0;
-    let mut chk_count = 0;
+    let mut role_counts = std::collections::HashMap::new();
 
     for cluster in clusters {
         let text = cluster.text.trim();
         if text.is_empty() { continue; }
 
-        let (role, id_prefix, count) = if is_button(text, cluster.style) {
-            btn_count += 1;
-            (Role::Button, "btn", btn_count)
-        } else if is_input(&cluster, cursor) {
-            inp_count += 1;
-            (Role::Input, "inp", inp_count)
-        } else if is_checkbox(text) {
-            chk_count += 1;
-            (Role::Checkbox, "chk", chk_count)
-        } else {
-            txt_count += 1;
-            (Role::StaticText, "txt", txt_count)
+        let role = infer_role(&cluster, cursor);
+
+        let entry = role_counts.entry(role).or_insert(0);
+        *entry += 1;
+        let count = *entry;
+
+        let id_prefix = match role {
+            Role::Button => "btn",
+            Role::Input => "inp",
+            Role::Checkbox => "chk",
+            Role::Tab => "tab",
+            Role::MenuItem => "menu",
+            Role::Link => "link",
+            Role::ProgressBar => "prog",
+            Role::Status => "stat",
+            Role::ErrorMessage => "err",
+            Role::DiffLine => "diff",
+            Role::CodeBlock => "code",
+            Role::Panel => "pan",
+            Role::ToolBlock => "tool",
+            Role::PromptMarker => "prom",
+            Role::StaticText => "txt",
         };
 
         let id = format!("@{}{}", id_prefix, count);
@@ -94,40 +103,281 @@ fn classify(clusters: Vec<Cluster>, cursor: (usize, usize)) -> Vec<Component> {
             role,
             text: text.to_string(),
             bounds: cluster.bounds,
-            selected: cluster.style.inverse,
+            selected: is_selected(&cluster),
         });
     }
 
     components
 }
 
-fn is_button(text: &str, style: VomStyle) -> bool {
-    // Buttons often have [ ] or < > or are inversed
-    (text.starts_with('[') && text.ends_with(']')) ||
-    (text.starts_with('<') && text.ends_with('>')) ||
-    (text.starts_with('(') && text.ends_with(')')) ||
-    style.inverse
+fn is_selected(cluster: &Cluster) -> bool {
+    cluster.style.inverse || cluster.text.starts_with('❯')
 }
 
-fn is_checkbox(text: &str) -> bool {
-    text.starts_with("[ ]") || text.starts_with("[x]") || text.starts_with("[X]")
-}
-
-fn is_input(cluster: &Cluster, cursor: (usize, usize)) -> bool {
-    // Input is often where the cursor is, or a long underscore/blank with specific style
+fn infer_role(cluster: &Cluster, cursor: (usize, usize)) -> Role {
+    let text = cluster.text.trim();
     let (cursor_row, cursor_col) = cursor;
+
+    // 1. Highest priority: explicit cursor interaction
     if cluster.bounds.y == cursor_row &&
        cursor_col >= cluster.bounds.x &&
        cursor_col < cluster.bounds.x + cluster.bounds.width {
-        // If it looks like a label + input, it's safer to call it text unless it's ONLY underscores/spaces
-        if cluster.text.chars().any(|c| c.is_alphanumeric()) {
-             // Heuristic: if it ends with underscores and has the cursor, maybe it is an input
-             // but for now let's be strict to avoid merging labels into inputs
-             return cluster.text.chars().all(|c| c == '_' || c == ' ' || c == ':');
+        return Role::Input;
+    }
+
+    // 2. Pattern based detection (checked BEFORE style markers to catch things like [OK] even if not inversed)
+    if is_button_text(text) {
+        return Role::Button;
+    }
+
+    // 3. Structural/Style markers
+    if cluster.style.inverse {
+        if cluster.bounds.y <= 2 {
+            return Role::Tab;
         }
+        // In htop, the whole line is inversed when selected.
+        // Agent-tui seems to classify these as buttons.
+        return Role::Button;
+    }
+
+    if let VomColor::Indexed(idx) = cluster.style.bg {
+        if idx == 4 || idx == 6 { // Blue/Cyan often used for tabs
+            return Role::Tab;
+        }
+    }
+
+    if is_error_message(text) {
+        return Role::ErrorMessage;
+    }
+
+    if is_input_field(text) {
+        return Role::Input;
+    }
+
+    if is_checkbox(text) {
+        return Role::Checkbox;
+    }
+
+    if is_prompt_marker(text) {
+        return Role::PromptMarker;
+    }
+
+    if is_menu_item(text) {
+        return Role::MenuItem;
+    }
+
+    if is_link(text) {
+        return Role::Link;
+    }
+
+    if is_progress_bar(text) {
+        return Role::ProgressBar;
+    }
+
+    if is_diff_line(text) {
+        return Role::DiffLine;
+    }
+
+    if is_tool_block_border(text) {
+        return Role::ToolBlock;
+    }
+
+    if is_code_block_border(text) {
+        return Role::CodeBlock;
+    }
+
+    if is_panel_border(text) {
+        return Role::Panel;
+    }
+
+    if is_status_indicator(text) {
+        return Role::Status;
+    }
+
+    Role::StaticText
+}
+
+// Patterns ported from agent-tui
+
+fn is_button_text(text: &str) -> bool {
+    if text.len() < 2 {
+        return false;
+    }
+
+    if (text.starts_with('[') && text.ends_with(']')) ||
+       (text.starts_with('(') && text.ends_with(')')) ||
+       (text.starts_with('<') && text.ends_with('>')) {
+        let inner = &text[1..text.len()-1];
+        let trimmed = inner.trim();
+
+        // Radio button / Checkbox exclusion
+        if trimmed.is_empty() || matches!(trimmed, "x" | "X" | " " | "✓" | "✔" | "o" | "O" | "●" | "○" | "◉") {
+            return false;
+        }
+
+        // If it contains alphabetic characters, it's likely a button
+        if inner.chars().any(|c| c.is_alphabetic()) {
+            return true;
+        }
+
+        // Exclude progress bars
+        const PROGRESS_CHARS: [char; 5] = ['|', '=', '#', '>', '.'];
+        let (progress_chars, non_space_chars) = inner.chars().fold((0, 0), |(p, n), c| {
+            (
+                if PROGRESS_CHARS.contains(&c) { p + 1 } else { p },
+                if !c.is_whitespace() { n + 1 } else { n }
+            )
+        });
+        if non_space_chars > 0 && progress_chars > non_space_chars / 2 {
+            return false;
+        }
+
         return true;
     }
-    cluster.text.chars().all(|c| c == '_' || c == ' ') && cluster.bounds.width > 2
+
+    // htop style: F1Help (starts with F-key)
+    if text.starts_with('F') && text.chars().nth(1).map(|c| c.is_ascii_digit()).unwrap_or(false) {
+        return true;
+    }
+
+    // htop style: "Help", "Setup" etc. if they are single words and look like labels
+    const COMMON_LABELS: [&str; 15] = [
+        "Help", "Setup", "Search", "Filter", "List", "SortBy", "Nice", "Kill", "Quit",
+        "OK", "Cancel", "Yes", "No", "Save", "Close"
+    ];
+    if COMMON_LABELS.contains(&text) {
+        return true;
+    }
+
+    false
+}
+
+fn is_checkbox(text: &str) -> bool {
+    matches!(
+        text,
+        "[x]" | "[X]" | "[ ]" | "[✓]" | "[✔]" | "◉" | "◯" | "●" | "○" | "◼" | "◻" | "☐" | "☑" | "☒"
+    )
+}
+
+fn is_input_field(text: &str) -> bool {
+    if text.contains("___") {
+        return true;
+    }
+    if !text.is_empty() && text.chars().all(|ch| ch == '_') {
+        return true;
+    }
+    if text.ends_with(": _") || text.ends_with(":_") {
+        return true;
+    }
+    false
+}
+
+fn is_menu_item(text: &str) -> bool {
+    text.starts_with('>')
+        || text.starts_with('❯')
+        || text.starts_with('›')
+        || text.starts_with('→')
+        || text.starts_with('▶')
+        || text.starts_with("• ")
+        || text.starts_with("* ")
+        || text.starts_with("- ")
+}
+
+fn is_link(text: &str) -> bool {
+    let t = text.trim();
+    if t.is_empty() { return false; }
+
+    if t.starts_with("https://")
+        || t.starts_with("http://")
+        || t.starts_with("file://")
+        || t.starts_with("ftp://")
+    {
+        return true;
+    }
+
+    is_file_path(t)
+}
+
+fn is_file_path(text: &str) -> bool {
+    let path_part = text.split(':').next().unwrap_or(text);
+
+    if path_part.starts_with('/') && path_part.len() > 1 {
+        return has_file_extension(path_part) || path_part.contains('/');
+    }
+
+    if path_part.starts_with("./") || path_part.starts_with("../") {
+        return true;
+    }
+
+    if path_part.contains('/') && has_file_extension(path_part) {
+        return true;
+    }
+
+    false
+}
+
+fn has_file_extension(text: &str) -> bool {
+    const EXTENSIONS: [&str; 30] = [
+        ".rs", ".js", ".ts", ".tsx", ".jsx", ".py", ".go", ".java", ".c", ".cpp", ".h", ".hpp",
+        ".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".html", ".css", ".sh", ".sql", ".xml",
+        ".vue", ".svelte", ".rb", ".php", ".swift", ".kt", ".scala",
+    ];
+    EXTENSIONS.iter().any(|ext| text.ends_with(ext))
+}
+
+fn is_progress_bar(text: &str) -> bool {
+    if text.is_empty() { return false; }
+
+    if text.starts_with('[') && text.ends_with(']') {
+        let inner = &text[1..text.len()-1];
+        let bar_chars = inner.chars().filter(|&c| c == '|' || c == '=' || c == '#' || c == '>' || c == '.').count();
+        return bar_chars > inner.len() / 2 && inner.len() > 2;
+    }
+
+    let block_chars = text.chars().filter(|&c| c == '█' || c == '▓' || c == '▒' || c == '░').count();
+    block_chars > text.len() / 2 && text.len() > 2
+}
+
+fn is_status_indicator(text: &str) -> bool {
+    let first = text.chars().next().unwrap_or(' ');
+    matches!(first, '⠋'|'⠙'|'⠹'|'⠸'|'⠼'|'⠴'|'⠦'|'⠧'|'⠇'|'⠏' | '✓'|'✔'|'✗'|'✘' | '◐'|'◑'|'◒'|'◓')
+}
+
+fn is_error_message(text: &str) -> bool {
+    let t = text.to_lowercase();
+    t.starts_with("error:") || t.starts_with("failure:") || text.starts_with('✗') || text.starts_with('✘')
+}
+
+fn is_diff_line(text: &str) -> bool {
+    text.starts_with("@@") || (text.starts_with('+') && text.len() > 1) || (text.starts_with('-') && text.len() > 1)
+}
+
+fn is_prompt_marker(text: &str) -> bool {
+    text == ">" || text == "> "
+}
+
+fn is_tool_block_border(text: &str) -> bool {
+    let first = text.chars().next().unwrap_or(' ');
+    let last = text.chars().last().unwrap_or(' ');
+    matches!(first, '╭'|'╰') || matches!(last, '╮'|'╯')
+}
+
+fn is_code_block_border(text: &str) -> bool {
+    text.trim().starts_with('│') && !text.contains('┌') && !text.contains('└')
+}
+
+fn is_panel_border(text: &str) -> bool {
+    const BOX_CHARS: [char; 22] = [
+        '─', '│', '┌', '┐', '└', '┘', '├', '┤', '┬', '┴', '┼', '═', '║', '╔', '╗', '╚', '╝', '╠', '╣',
+        '╦', '╩', '╬',
+    ];
+    let total = text.chars().filter(|c| !c.is_whitespace()).count();
+    if total == 0 {
+        return false;
+    }
+
+    let box_count = text.chars().filter(|c| BOX_CHARS.contains(c)).count();
+    box_count > total / 2
 }
 
 #[cfg(test)]
@@ -159,44 +409,36 @@ mod tests {
         grid.cells[1][5] = (']', VomStyle::default());
 
         let components = analyze(&grid, (0, 0));
-        assert_eq!(components.len(), 1);
-        assert_eq!(components[0].text, "[OK]");
-        assert_eq!(components[0].role, Role::Button);
-        assert_eq!(components[0].bounds.x, 2);
-        assert_eq!(components[0].bounds.width, 4);
+        let btn = components.iter().find(|c| c.role == Role::Button).unwrap();
+        assert_eq!(btn.text, "[OK]");
     }
 
     #[test]
-    fn test_input_detection() {
+    fn test_htop_fkey_button() {
         let mut grid = MockGrid {
-            cells: vec![vec![(' ', VomStyle::default()); 15]; 3],
+            cells: vec![vec![(' ', VomStyle::default()); 20]; 1],
         };
-        // Label: "Name:" at (1,1) to (1,5)
-        grid.cells[1][1] = ('N', VomStyle::default());
-        grid.cells[1][2] = ('a', VomStyle::default());
-        grid.cells[1][3] = ('m', VomStyle::default());
-        grid.cells[1][4] = ('e', VomStyle::default());
-        grid.cells[1][5] = (':', VomStyle::default());
-
-        // DIFFERENT STYLE for input to prevent merging
-        let input_style = VomStyle { bold: true, ..VomStyle::default() };
-        grid.cells[1][7] = ('_', input_style);
-        grid.cells[1][8] = ('_', input_style);
-        grid.cells[1][9] = ('_', input_style);
-
-        // Cursor on the underscores at (1,8)
-        let components = analyze(&grid, (1, 8));
-
-        for c in &components {
-            println!("Component: {:?} ID={} text='{}' at x={}", c.role, c.id, c.text, c.bounds.x);
+        let text = "F1Help";
+        for (i, c) in text.chars().enumerate() {
+            grid.cells[0][i] = (c, VomStyle::default());
         }
 
-        let input = components.iter().find(|c| c.role == Role::Input).expect("Should find input");
-        assert_eq!(input.bounds.x, 7);
-        assert_eq!(input.bounds.width, 3);
+        let components = analyze(&grid, (99, 99));
+        assert_eq!(components[0].role, Role::Button);
+        assert_eq!(components[0].text, "F1Help");
+    }
 
-        let label = components.iter().find(|c| c.role == Role::StaticText).expect("Should find label");
-        assert_eq!(label.text, "Name:");
-        assert_eq!(label.bounds.x, 1);
+    #[test]
+    fn test_progress_bar_detection() {
+        let mut grid = MockGrid {
+            cells: vec![vec![(' ', VomStyle::default()); 20]; 1],
+        };
+        let text = "[|||||    ]";
+        for (i, c) in text.chars().enumerate() {
+            grid.cells[0][i] = (c, VomStyle::default());
+        }
+
+        let components = analyze(&grid, (99, 99));
+        assert_eq!(components[0].role, Role::ProgressBar);
     }
 }

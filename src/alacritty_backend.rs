@@ -157,7 +157,27 @@ fn color_to_ansi(color: &Color, is_foreground: bool) -> Option<String> {
 
 fn map_color(color: &Color) -> VomColor {
     match color {
-        Color::Named(_) => VomColor::Default,
+        Color::Named(named) => {
+            match named {
+                NamedColor::Black => VomColor::Indexed(0),
+                NamedColor::Red => VomColor::Indexed(1),
+                NamedColor::Green => VomColor::Indexed(2),
+                NamedColor::Yellow => VomColor::Indexed(3),
+                NamedColor::Blue => VomColor::Indexed(4),
+                NamedColor::Magenta => VomColor::Indexed(5),
+                NamedColor::Cyan => VomColor::Indexed(6),
+                NamedColor::White => VomColor::Indexed(7),
+                NamedColor::BrightBlack => VomColor::Indexed(8),
+                NamedColor::BrightRed => VomColor::Indexed(9),
+                NamedColor::BrightGreen => VomColor::Indexed(10),
+                NamedColor::BrightYellow => VomColor::Indexed(11),
+                NamedColor::BrightBlue => VomColor::Indexed(12),
+                NamedColor::BrightMagenta => VomColor::Indexed(13),
+                NamedColor::BrightCyan => VomColor::Indexed(14),
+                NamedColor::BrightWhite => VomColor::Indexed(15),
+                _ => VomColor::Default,
+            }
+        }
         Color::Indexed(idx) => VomColor::Indexed(*idx),
         Color::Spec(rgb) => VomColor::Rgb(rgb.r, rgb.g, rgb.b),
     }
