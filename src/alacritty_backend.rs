@@ -11,6 +11,7 @@ use alacritty_terminal::vte::ansi::{self, Color, NamedColor};
 use alacritty_terminal::index::{Column, Line};
 
 use crate::terminal::{TerminalEmulator, UnhandledSequence};
+use crate::vom::{VomGrid, VomStyle, VomColor};
 
 /// Display-related flags that affect ANSI output (excludes internal flags like WRAPLINE)
 fn display_flags(flags: Flags) -> Flags {
@@ -154,6 +155,14 @@ fn color_to_ansi(color: &Color, is_foreground: bool) -> Option<String> {
     }
 }
 
+fn map_color(color: &Color) -> VomColor {
+    match color {
+        Color::Named(_) => VomColor::Default,
+        Color::Indexed(idx) => VomColor::Indexed(*idx),
+        Color::Spec(rgb) => VomColor::Rgb(rgb.r, rgb.g, rgb.b),
+    }
+}
+
 /// Convert NamedColor to ANSI code
 fn named_color_to_ansi(color: NamedColor, is_foreground: bool) -> Option<String> {
     let code = match color {
@@ -230,6 +239,37 @@ fn trim_end_preserve_ansi(s: &str) -> &str {
 
     // Return up to and including any trailing ANSI codes
     &s[..end]
+}
+
+impl VomGrid for AlacrittyTerminal {
+    fn grid_dimensions(&self) -> (usize, usize) {
+        (self.rows, self.cols)
+    }
+
+    fn cell(&self, row: usize, col: usize) -> Option<(char, VomStyle)> {
+        if row >= self.rows || col >= self.cols {
+            return None;
+        }
+
+        let grid = self.term.grid();
+        let cell = &grid[Line(row as i32)][Column(col)];
+
+        // Skip wide char spacers - caller might need to handle this
+        // but for VOM we usually want the base char
+        if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
+             return Some((' ', VomStyle::default()));
+        }
+
+        let style = VomStyle {
+            bold: cell.flags.contains(Flags::BOLD),
+            underline: cell.flags.contains(Flags::UNDERLINE),
+            inverse: cell.flags.contains(Flags::INVERSE),
+            fg: map_color(&cell.fg),
+            bg: map_color(&cell.bg),
+        };
+
+        Some((cell.c, style))
+    }
 }
 
 impl TerminalEmulator for AlacrittyTerminal {

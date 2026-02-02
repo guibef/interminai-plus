@@ -10,11 +10,13 @@ pub struct UnhandledSequence {
     pub raw_hex: String,
 }
 
+use crate::vom::VomGrid;
+
 /// Trait abstracting terminal emulator implementations
 ///
 /// This trait allows swapping between different terminal emulation backends
 /// while keeping the PTY management and daemon architecture unchanged.
-pub trait TerminalEmulator: Send {
+pub trait TerminalEmulator: Send + VomGrid {
     /// Feed bytes from PTY output to the terminal.
     /// This is the primary method for processing terminal data.
     fn process_bytes(&mut self, bytes: &[u8]);

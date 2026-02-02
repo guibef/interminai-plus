@@ -7,6 +7,7 @@
 mod terminal;
 mod custom_screen;
 mod alacritty_backend;
+pub mod vom;
 
 use clap::{Parser as ClapParser, Subcommand};
 use anyhow::{Result, Context, bail};
@@ -29,6 +30,7 @@ use std::fs;
 use std::path::Path;
 
 use terminal::TerminalEmulator;
+use vom::Component;
 
 /// Terminal emulator backend
 #[derive(Clone, Copy, Debug, Default, clap::ValueEnum)]
@@ -111,6 +113,10 @@ enum Commands {
         /// Cursor display mode (none, inverse, print, both)
         #[arg(long, default_value = "none")]
         cursor: String,
+
+        /// Detect TUI elements (VOM)
+        #[arg(long)]
+        vom: bool,
     },
 
     /// Stop running session
@@ -174,6 +180,25 @@ enum Commands {
         #[arg(long)]
         clear: bool,
     },
+
+    /// Perform a semantic action on a TUI element
+    Act {
+        /// Unix socket path (required)
+        #[arg(long, required = true)]
+        socket: String,
+
+        /// Action type (click, input)
+        #[arg(long)]
+        action: String,
+
+        /// Target element reference (e.g., @btn1)
+        #[arg(long)]
+        target: String,
+
+        /// Input text (only for input action)
+        #[arg(long)]
+        text: Option<String>,
+    },
 }
 
 // Protocol messages
@@ -231,6 +256,8 @@ struct DaemonState {
     pty_dump: Option<std::fs::File>,
     /// Activity flag: set when PTY output is received
     activity: bool,
+    /// Last detected VOM elements
+    last_elements: Vec<Component>,
 }
 
 impl DaemonState {
@@ -519,6 +546,7 @@ fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, c
                 should_shutdown: false,
                 pty_dump: pty_dump_file,
                 activity: false,
+                last_elements: Vec::new(),
             }));
 
             // Start PTY reader thread - use poll() for efficient event-driven I/O
@@ -661,6 +689,8 @@ fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, c
 }
 
 fn handle_client(mut stream: UnixStream, state: Arc<Mutex<DaemonState>>) -> Result<()> {
+    stream.set_nonblocking(false)?; // Ensure blocking mode for reliable large responses
+
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut line = String::new();
 
@@ -683,6 +713,7 @@ fn handle_client(mut stream: UnixStream, state: Arc<Mutex<DaemonState>>) -> Resu
     let response = match request.req_type.as_str() {
         "INPUT" => handle_input(request.data, &state),
         "OUTPUT" => handle_output(request.data, &state),
+        "ACT" => handle_act(request.data, &state),
         "STATUS" => handle_running(request.data, &state),
         "WAIT" => handle_wait(request.data.clone(), &state, &stream),
         "KILL" => handle_kill(request.data, &state),
@@ -698,8 +729,7 @@ fn handle_client(mut stream: UnixStream, state: Arc<Mutex<DaemonState>>) -> Resu
 }
 
 fn write_response(stream: &mut UnixStream, response: &Response) -> Result<()> {
-    let json = serde_json::to_string(response)?;
-    stream.write_all(json.as_bytes())?;
+    serde_json::to_writer(&mut *stream, response)?;
     stream.write_all(b"\n")?;
     stream.flush()?;
     Ok(())
@@ -721,6 +751,7 @@ fn handle_input(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Res
 
 fn handle_output(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Response {
     let format = data.get("format").and_then(|v| v.as_str()).unwrap_or("ascii");
+    let detect_elements = data.get("elements").and_then(|v| v.as_bool()).unwrap_or(false);
 
     let mut state = state.lock().unwrap();
     state.read_pty_output();
@@ -732,7 +763,7 @@ fn handle_output(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Re
     let (cursor_row, cursor_col) = state.terminal.cursor_position();
     let (rows, cols) = state.terminal.dimensions();
 
-    let data = serde_json::json!({
+    let mut res_data = serde_json::json!({
         "screen": screen_text,
         "cursor": {
             "row": cursor_row,
@@ -744,7 +775,58 @@ fn handle_output(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Re
         }
     });
 
-    Response::ok(data)
+    if detect_elements {
+        let elements = vom::engine::analyze(state.terminal.as_ref(), (cursor_row, cursor_col));
+        state.last_elements = elements.clone();
+        res_data["elements"] = serde_json::to_value(elements).unwrap_or(serde_json::Value::Null);
+    }
+
+    Response::ok(res_data)
+}
+
+fn handle_act(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Response {
+    let action = match data.get("action").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => return Response::error("Missing 'action' field".to_string()),
+    };
+    let target = match data.get("target").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => return Response::error("Missing 'target' field".to_string()),
+    };
+
+    let state = state.lock().unwrap();
+    let element = match state.last_elements.iter().find(|e| e.id == target) {
+        Some(e) => e,
+        None => return Response::error(format!("Element not found: {}", target)),
+    };
+
+    match action {
+        "click" => {
+            let center_x = element.bounds.x + element.bounds.width / 2;
+            let center_y = element.bounds.y; // 1D for now
+
+            // For now, move cursor and send Enter as a fallback for "click"
+            // In a more advanced implementation, we'd send mouse sequences
+            let move_seq = format!("\x1b[{};{}H\r", center_y + 1, center_x + 1);
+            match nix::unistd::write(state.master_fd.as_raw_fd(), move_seq.as_bytes()) {
+                Ok(_) => Response::ok(serde_json::json!({})),
+                Err(e) => Response::error(format!("Failed to write to PTY: {}", e)),
+            }
+        }
+        "input" => {
+            let text = match data.get("text").and_then(|v| v.as_str()) {
+                Some(s) => s,
+                None => return Response::error("Missing 'text' field for input action".to_string()),
+            };
+            // Move to element and send text
+            let seq = format!("\x1b[{};{}H{}", element.bounds.y + 1, element.bounds.x + 1, text);
+            match nix::unistd::write(state.master_fd.as_raw_fd(), seq.as_bytes()) {
+                Ok(_) => Response::ok(serde_json::json!({})),
+                Err(e) => Response::error(format!("Failed to write to PTY: {}", e)),
+            }
+        }
+        _ => Response::error(format!("Unknown action: {}", action)),
+    }
 }
 
 fn handle_running(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Response {
@@ -1058,10 +1140,7 @@ fn send_request(socket_path: &str, request: serde_json::Value) -> Result<Respons
     stream.flush()?;
 
     let mut reader = BufReader::new(stream);
-    let mut line = String::new();
-    reader.read_line(&mut line)?;
-
-    let response: Response = serde_json::from_str(&line)?;
+    let response: Response = serde_json::from_reader(&mut reader)?;
     Ok(response)
 }
 
@@ -1236,14 +1315,15 @@ fn main() -> Result<()> {
                 std::process::exit(1);
             }
         }
-        Commands::Output { socket, color, no_color, cursor } => {
+        Commands::Output { socket, color, no_color, cursor, vom } => {
             // Default is color (ansi), --no-color disables it
             let format = if no_color { "ascii" } else { "ansi" };
             let _ = color; // --color is just for explicitness, default is already color
 
             let request = serde_json::json!({
                 "type": "OUTPUT",
-                "format": format
+                "format": format,
+                "elements": vom
             });
 
             let response = send_request(&socket, request)?;
@@ -1279,6 +1359,21 @@ fn main() -> Result<()> {
                         }
                     } else {
                         print!("{}", screen);
+                    }
+                }
+
+                // Print detected elements if vom was requested
+                if vom {
+                    if let Some(elements) = data.get("elements").and_then(|v| v.as_array()) {
+                        if !elements.is_empty() {
+                            println!("\nDetected Elements:");
+                            for element in elements {
+                                let id = element.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                                let role = element.get("role").and_then(|v| v.as_str()).unwrap_or("?");
+                                let text = element.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                                println!("  {} [{}]: \"{}\"", id, role, text);
+                            }
+                        }
                     }
                 }
             }
@@ -1474,6 +1569,23 @@ fn main() -> Result<()> {
                     }
                 }
             }
+        }
+        Commands::Act { socket, action, target, text } => {
+            let request = serde_json::json!({
+                "type": "ACT",
+                "action": action,
+                "target": target,
+                "text": text
+            });
+
+            let response = send_request(&socket, request)?;
+
+            if response.status == "error" {
+                eprintln!("Error: {}", response.error.unwrap_or_default());
+                std::process::exit(1);
+            }
+
+            println!("Action {} performed on {}", action, target);
         }
     }
 

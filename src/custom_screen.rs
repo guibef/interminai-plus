@@ -5,6 +5,7 @@
 
 use vte::Perform;
 use crate::terminal::{TerminalEmulator, UnhandledSequence};
+use crate::vom::{VomGrid, VomStyle};
 
 /// Ring buffer for tracking unhandled escape sequences
 struct DebugBuffer {
@@ -171,6 +172,20 @@ impl TerminalEmulator for CustomScreen {
 
     fn get_debug_dropped(&self) -> usize {
         self.debug_buffer.get_dropped()
+    }
+}
+
+impl VomGrid for CustomScreen {
+    fn grid_dimensions(&self) -> (usize, usize) {
+        (self.rows, self.cols)
+    }
+
+    fn cell(&self, row: usize, col: usize) -> Option<(char, VomStyle)> {
+        if row < self.rows && col < self.cols {
+            Some((self.cells[row][col], VomStyle::default()))
+        } else {
+            None
+        }
     }
 }
 
