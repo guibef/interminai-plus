@@ -6,4 +6,8 @@ Cargo.lock
 __pycache__/
 *.pyc
 agent/
+/tmp
+
 .aider*
+.vscode/
+
