@@ -128,6 +128,8 @@ fn classify(clusters: Vec<Cluster>, cursor: (usize, usize), options: &ClassifyOp
             Role::ToolBlock => "tool",
             Role::PromptMarker => "prom",
             Role::StaticText => "txt",
+            Role::Radio => "rad",
+            Role::Select => "sel",
         };
 
         let id = format!("@{}{}", id_prefix, count);
@@ -138,14 +140,43 @@ fn classify(clusters: Vec<Cluster>, cursor: (usize, usize), options: &ClassifyOp
             text: text.to_string(),
             bounds: cluster.bounds,
             selected: is_selected(&cluster),
+            checked: detect_checked_state(text),
+            value: if role == Role::Input { Some(text.to_string()) } else { None },
         });
     }
 
     components
 }
 
+pub fn detect_checked_state(text: &str) -> Option<bool> {
+    let lower = text.to_lowercase();
+    if lower.contains("[x]")
+        || lower.contains("(x)")
+        || lower.contains("☑")
+        || lower.contains("✓")
+        || lower.contains("✔")
+        || lower.contains("◉")
+        || lower.contains("●")
+    {
+        Some(true)
+    } else if lower.contains("[ ]")
+        || lower.contains("( )")
+        || lower.contains("☐")
+        || lower.contains("◯")
+        || lower.contains("○")
+    {
+        Some(false)
+    } else {
+        None
+    }
+}
+
 fn is_selected(cluster: &Cluster) -> bool {
-    cluster.style.inverse || cluster.text.starts_with('❯')
+    cluster.style.inverse
+        || cluster.text.starts_with('❯')
+        || cluster.text.starts_with('›')
+        || cluster.text.starts_with('◉')
+        || (cluster.text.starts_with('>') && !cluster.text.starts_with(">>"))
 }
 
 fn infer_role(cluster: &Cluster, cursor: (usize, usize), options: &ClassifyOptions) -> Role {
@@ -186,6 +217,14 @@ fn infer_role(cluster: &Cluster, cursor: (usize, usize), options: &ClassifyOptio
 
     if is_checkbox(text) {
         return Role::Checkbox;
+    }
+
+    if is_radio(text) {
+        return Role::Radio;
+    }
+
+    if is_select(text) {
+        return Role::Select;
     }
 
     if is_prompt_marker(text) {
@@ -292,16 +331,23 @@ pub fn is_checkbox(text: &str) -> bool {
             | "[ ]"
             | "[✓]"
             | "[✔]"
-            | "◉"
-            | "◯"
-            | "●"
-            | "○"
             | "◼"
             | "◻"
             | "☐"
             | "☑"
             | "☒"
     )
+}
+
+pub fn is_radio(text: &str) -> bool {
+    matches!(
+        text,
+        "(x)" | "(X)" | "( )" | "◉" | "◯" | "●" | "○"
+    )
+}
+
+pub fn is_select(text: &str) -> bool {
+    text.starts_with('❯') || text.starts_with('›')
 }
 
 pub fn is_menu_item(text: &str) -> bool {
@@ -566,6 +612,9 @@ mod tests {
         assert!(!is_button_text("[x]")); // Checkbox
         assert!(is_input_field("Name: ___"));
         assert!(is_checkbox("[x]"));
+        assert!(is_radio("(x)"));
+        assert!(is_radio("◉"));
+        assert!(is_select("❯ Option"));
         assert!(is_menu_item("> Option"));
         assert!(is_link("https://google.com"));
         assert!(is_error_message("Error: failed"));

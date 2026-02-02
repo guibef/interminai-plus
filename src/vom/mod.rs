@@ -53,6 +53,8 @@ pub enum Role {
     ErrorMessage,
     DiffLine,
     CodeBlock,
+    Radio,
+    Select,
 }
 
 impl std::fmt::Display for Role {
@@ -73,6 +75,8 @@ impl std::fmt::Display for Role {
             Role::ErrorMessage => write!(f, "error"),
             Role::DiffLine => write!(f, "diff"),
             Role::CodeBlock => write!(f, "codeblock"),
+            Role::Radio => write!(f, "radio"),
+            Role::Select => write!(f, "select"),
         }
     }
 }
@@ -84,6 +88,8 @@ pub struct Component {
     pub text: String,
     pub bounds: VomRect,
     pub selected: bool,
+    pub checked: Option<bool>,
+    pub value: Option<String>,
 }
 
 #[derive(Debug, Clone)]

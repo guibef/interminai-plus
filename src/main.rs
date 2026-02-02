@@ -187,7 +187,7 @@ enum Commands {
         #[arg(long, required = true)]
         socket: String,
 
-        /// Action type (click, input)
+        /// Action type (click, dbl_click, input, clear, select_all, toggle, select, scroll, scroll_into_view)
         #[arg(long)]
         action: String,
 
@@ -195,9 +195,21 @@ enum Commands {
         #[arg(long)]
         target: String,
 
-        /// Input text (only for input action)
+        /// Input text (for input, select)
         #[arg(long)]
         text: Option<String>,
+
+        /// Scroll direction (up, down, left, right)
+        #[arg(long)]
+        direction: Option<String>,
+
+        /// Scroll amount
+        #[arg(long)]
+        amount: Option<u32>,
+
+        /// Desired state (for toggle: true/false)
+        #[arg(long)]
+        state: Option<bool>,
     },
 }
 
@@ -353,6 +365,30 @@ fn unescape(s: &str) -> Result<String> {
     }
 
     Ok(result)
+}
+
+fn parse_select_options(screen_text: &str) -> (Vec<String>, usize) {
+    let mut options = Vec::new();
+    let mut selected_idx = 0;
+
+    for line in screen_text.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with('❯') || trimmed.starts_with('›') {
+            selected_idx = options.len();
+            options.push(trimmed.trim_start_matches(['❯', '›', ' ']).to_string());
+        } else if trimmed.starts_with('◉') {
+            selected_idx = options.len();
+            options.push(trimmed.trim_start_matches(['◉', ' ']).to_string());
+        } else if trimmed.starts_with('◯') {
+            options.push(trimmed.trim_start_matches(['◯', ' ']).to_string());
+        } else if trimmed.starts_with('>') && !trimmed.starts_with(">>") {
+            selected_idx = options.len();
+            options.push(trimmed.trim_start_matches(['>', ' ']).to_string());
+        }
+    }
+
+    (options, selected_idx)
 }
 
 fn parse_signal(sig: &str) -> Result<Signal> {
@@ -784,7 +820,7 @@ fn handle_output(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Re
     Response::ok(res_data)
 }
 
-fn handle_act(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Response {
+fn handle_act(data: serde_json::Value, state_lock: &Arc<Mutex<DaemonState>>) -> Response {
     let action = match data.get("action").and_then(|v| v.as_str()) {
         Some(s) => s,
         None => return Response::error("Missing 'action' field".to_string()),
@@ -794,36 +830,189 @@ fn handle_act(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Respo
         None => return Response::error("Missing 'target' field".to_string()),
     };
 
-    let state = state.lock().unwrap();
-    let element = match state.last_elements.iter().find(|e| e.id == target) {
-        Some(e) => e,
-        None => return Response::error(format!("Element not found: {}", target)),
+    let element = {
+        let state = state_lock.lock().unwrap();
+        match state.last_elements.iter().find(|e| e.id == target) {
+            Some(e) => e.clone(),
+            None => return Response::error(format!("Element not found: {}", target)),
+        }
     };
 
     match action {
         "click" => {
+            let state = state_lock.lock().unwrap();
             let center_x = element.bounds.x + element.bounds.width / 2;
-            let center_y = element.bounds.y; // 1D for now
+            let center_y = element.bounds.y;
 
-            // For now, move cursor and send Enter as a fallback for "click"
-            // In a more advanced implementation, we'd send mouse sequences
+            // Move cursor and send Enter as a fallback for "click"
             let move_seq = format!("\x1b[{};{}H\r", center_y + 1, center_x + 1);
             match nix::unistd::write(state.master_fd.as_raw_fd(), move_seq.as_bytes()) {
                 Ok(_) => Response::ok(serde_json::json!({})),
                 Err(e) => Response::error(format!("Failed to write to PTY: {}", e)),
             }
         }
+        "dbl_click" => {
+            let state = state_lock.lock().unwrap();
+            let center_x = element.bounds.x + element.bounds.width / 2;
+            let center_y = element.bounds.y;
+
+            let move_seq = format!("\x1b[{};{}H\r", center_y + 1, center_x + 1);
+            match nix::unistd::write(state.master_fd.as_raw_fd(), move_seq.as_bytes()) {
+                Ok(_) => {
+                    thread::sleep(Duration::from_millis(50));
+                    match nix::unistd::write(state.master_fd.as_raw_fd(), move_seq.as_bytes()) {
+                        Ok(_) => Response::ok(serde_json::json!({})),
+                        Err(e) => Response::error(format!("Failed to write to PTY: {}", e)),
+                    }
+                }
+                Err(e) => Response::error(format!("Failed to write to PTY: {}", e)),
+            }
+        }
         "input" => {
+            let state = state_lock.lock().unwrap();
             let text = match data.get("text").and_then(|v| v.as_str()) {
                 Some(s) => s,
                 None => return Response::error("Missing 'text' field for input action".to_string()),
             };
-            // Move to element and send text
-            let seq = format!("\x1b[{};{}H{}", element.bounds.y + 1, element.bounds.x + 1, text);
+            // Move to element, select all (Ctrl+A), and send text
+            let seq = format!("\x1b[{};{}H\x01{}", element.bounds.y + 1, element.bounds.x + 1, text);
             match nix::unistd::write(state.master_fd.as_raw_fd(), seq.as_bytes()) {
                 Ok(_) => Response::ok(serde_json::json!({})),
                 Err(e) => Response::error(format!("Failed to write to PTY: {}", e)),
             }
+        }
+        "clear" => {
+            let state = state_lock.lock().unwrap();
+            // Send Ctrl+U to clear input
+            match nix::unistd::write(state.master_fd.as_raw_fd(), b"\x15") {
+                Ok(_) => Response::ok(serde_json::json!({})),
+                Err(e) => Response::error(format!("Failed to write to PTY: {}", e)),
+            }
+        }
+        "select_all" => {
+            let state = state_lock.lock().unwrap();
+            // Send Ctrl+A
+            match nix::unistd::write(state.master_fd.as_raw_fd(), b"\x01") {
+                Ok(_) => Response::ok(serde_json::json!({})),
+                Err(e) => Response::error(format!("Failed to write to PTY: {}", e)),
+            }
+        }
+        "toggle" => {
+            let desired_state = data.get("state").and_then(|v| v.as_bool());
+
+            let current_checked = element.checked.unwrap_or(false);
+            let should_toggle = match desired_state {
+                Some(s) => s != current_checked,
+                None => true, // Always toggle if no state specified
+            };
+
+            if should_toggle {
+                let state = state_lock.lock().unwrap();
+                if element.role != vom::Role::Checkbox && element.role != vom::Role::Radio {
+                    return Response::error(format!("Element {} is not a checkbox or radio", target));
+                }
+                // Move to element and send Space
+                let seq = format!("\x1b[{};{}H ", element.bounds.y + 1, element.bounds.x + 1);
+                match nix::unistd::write(state.master_fd.as_raw_fd(), seq.as_bytes()) {
+                    Ok(_) => Response::ok(serde_json::json!({})),
+                    Err(e) => Response::error(format!("Failed to write to PTY: {}", e)),
+                }
+            } else {
+                Response::ok(serde_json::json!({ "message": "Already in desired state" }))
+            }
+        }
+        "select" => {
+            let option = data.get("text").and_then(|v| v.as_str());
+            if let Some(target_opt) = option {
+                let mut state = state_lock.lock().unwrap();
+                state.read_pty_output();
+                let screen_text = state.terminal.get_screen_content();
+
+                let (options, current_idx) = parse_select_options(&screen_text);
+                let target_lower = target_opt.to_lowercase();
+                let target_idx = options
+                    .iter()
+                    .position(|opt| opt.to_lowercase().contains(&target_lower));
+
+                if let Some(idx) = target_idx {
+                    let steps = idx as i32 - current_idx as i32;
+                    let key = if steps > 0 { b"\x1b[B" } else { b"\x1b[A" }; // DOWN, UP
+
+                    for _ in 0..steps.abs() {
+                        let _ = nix::unistd::write(state.master_fd.as_raw_fd(), key);
+                        // We need to wait a bit for the app to respond
+                        thread::sleep(Duration::from_millis(30));
+                    }
+                }
+                // Finally send Enter
+                let _ = nix::unistd::write(state.master_fd.as_raw_fd(), b"\r");
+                Response::ok(serde_json::json!({}))
+            } else {
+                let state = state_lock.lock().unwrap();
+                let center_x = element.bounds.x + element.bounds.width / 2;
+                let center_y = element.bounds.y;
+                let move_seq = format!("\x1b[{};{}H\r", center_y + 1, center_x + 1);
+                match nix::unistd::write(state.master_fd.as_raw_fd(), move_seq.as_bytes()) {
+                    Ok(_) => Response::ok(serde_json::json!({})),
+                    Err(e) => Response::error(format!("Failed to write to PTY: {}", e)),
+                }
+            }
+        }
+        "focus" => {
+            let state = state_lock.lock().unwrap();
+            // Fallback for focus: send Tab
+            match nix::unistd::write(state.master_fd.as_raw_fd(), b"\t") {
+                Ok(_) => Response::ok(serde_json::json!({})),
+                Err(e) => Response::error(format!("Failed to write to PTY: {}", e)),
+            }
+        }
+        "scroll" => {
+            let state = state_lock.lock().unwrap();
+            let direction = match data.get("direction").and_then(|v| v.as_str()) {
+                Some(s) => s,
+                None => return Response::error("Missing 'direction' field for scroll action".to_string()),
+            };
+            let amount = data.get("amount").and_then(|v| v.as_u64()).unwrap_or(1);
+
+            let key_seq = match direction {
+                "up" => "\x1b[A",
+                "down" => "\x1b[B",
+                "left" => "\x1b[D",
+                "right" => "\x1b[C",
+                _ => return Response::error(format!("Invalid direction: {}", direction)),
+            };
+
+            for _ in 0..amount {
+                if let Err(e) = nix::unistd::write(state.master_fd.as_raw_fd(), key_seq.as_bytes()) {
+                    return Response::error(format!("Failed to write to PTY: {}", e));
+                }
+            }
+            Response::ok(serde_json::json!({}))
+        }
+        "scroll_into_view" => {
+            // Scroll down until element is found or limit reached
+            let max_scrolls = 20;
+            let mut scrolls = 0;
+            let element_text = element.text.clone();
+
+            while scrolls < max_scrolls {
+                {
+                    let mut state = state_lock.lock().unwrap();
+                    state.read_pty_output();
+                    let (cursor_row, cursor_col) = state.terminal.cursor_position();
+                    let elements = vom::engine::analyze(state.terminal.as_ref(), (cursor_row, cursor_col));
+                    if elements.iter().any(|e| e.text == element_text) {
+                        return Response::ok(serde_json::json!({ "scrolls": scrolls }));
+                    }
+                    // Scroll down
+                    if let Err(e) = nix::unistd::write(state.master_fd.as_raw_fd(), b"\x1b[B") {
+                        return Response::error(format!("Failed to write to PTY: {}", e));
+                    }
+                }
+                scrolls += 1;
+                thread::sleep(Duration::from_millis(100));
+            }
+            Response::error(format!("Element not found after {} scrolls", max_scrolls))
         }
         _ => Response::error(format!("Unknown action: {}", action)),
     }
@@ -1601,12 +1790,15 @@ fn main() -> Result<()> {
                 }
             }
         }
-        Commands::Act { socket, action, target, text } => {
+        Commands::Act { socket, action, target, text, direction, amount, state } => {
             let request = serde_json::json!({
                 "type": "ACT",
                 "action": action,
                 "target": target,
-                "text": text
+                "text": text,
+                "direction": direction,
+                "amount": amount,
+                "state": state
             });
 
             let response = send_request(&socket, request)?;
