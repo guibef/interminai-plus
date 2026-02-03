@@ -181,7 +181,32 @@ enum Commands {
         clear: bool,
     },
 
-    /// Perform a semantic action on a TUI element
+    /// Perform a semantic action on a TUI element.
+    ///
+    /// Supported Roles:
+    ///
+    ///   @btn (Button), @inp (Input), @chk (Checkbox), @rad (Radio), @sel (Select),
+    ///   @tab (Tab), @menu (MenuItem), @link (Link), @prog (ProgressBar),
+    ///   @stat (Status), @err (Error), @diff (Diff), @code (CodeBlock),
+    ///   @pan (Panel), @tool (ToolBlock), @prom (Prompt), @txt (Text)
+    ///
+    /// Supported Actions:
+    ///
+    ///   click, dbl_click    - Move cursor and send Enter (any element)
+    ///
+    ///   input               - Select all and type text (requires --text)
+    ///
+    ///   clear, select_all   - Send Ctrl+U or Ctrl+A (Input fields)
+    ///
+    ///   toggle              - Send Space (Checkboxes, Radios; optional --state)
+    ///
+    ///   select              - Smart navigation to option by text (Select menus)
+    ///
+    ///   scroll              - Send arrow keys (requires --direction, --amount)
+    ///
+    ///   scroll_into_view    - Auto-scroll down until target text is visible
+    ///
+    ///   focus               - Send Tab key to cycle focus
     Act {
         /// Unix socket path (required)
         #[arg(long, required = true)]
