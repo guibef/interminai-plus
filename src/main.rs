@@ -9,7 +9,7 @@ mod custom_screen;
 mod alacritty_backend;
 pub mod vom;
 
-use clap::{Parser as ClapParser, Subcommand};
+use clap::{Parser as ClapParser, Subcommand, ValueEnum};
 use anyhow::{Result, Context, bail};
 use std::process::{Command as ProcessCommand};
 use std::os::unix::process::CommandExt;
@@ -40,6 +40,16 @@ pub enum Emulator {
     Xterm,
     /// Basic ANSI terminal emulation (custom backend)
     Custom,
+}
+
+/// Output format
+#[derive(Clone, Copy, Debug, Default, ValueEnum)]
+pub enum OutputFormat {
+    /// Human-readable text (default)
+    #[default]
+    Text,
+    /// Machine-readable JSON
+    Json,
 }
 
 #[derive(ClapParser)]
@@ -117,6 +127,14 @@ enum Commands {
         /// Detect TUI elements (VOM)
         #[arg(long)]
         vom: bool,
+
+        /// Output format (text or json)
+        #[arg(long, value_enum, default_value = "text")]
+        format: OutputFormat,
+
+        /// Shorthand for --format json
+        #[arg(long)]
+        json: bool,
     },
 
     /// Stop running session
@@ -1529,14 +1547,17 @@ fn main() -> Result<()> {
                 std::process::exit(1);
             }
         }
-        Commands::Output { socket, color, no_color, cursor, vom } => {
+        Commands::Output { socket, color, no_color, cursor, vom, format, json } => {
             // Default is color (ansi), --no-color disables it
-            let format = if no_color { "ascii" } else { "ansi" };
+            let screen_format = if no_color { "ascii" } else { "ansi" };
             let _ = color; // --color is just for explicitness, default is already color
+
+            // Determine effective output format (json flag takes precedence)
+            let effective_format = if json { OutputFormat::Json } else { format };
 
             let request = serde_json::json!({
                 "type": "OUTPUT",
-                "format": format,
+                "format": screen_format,
                 "elements": vom
             });
 
@@ -1548,75 +1569,155 @@ fn main() -> Result<()> {
             }
 
             if let Some(data) = response.data {
-                let cursor_mode = cursor.as_str();
+                match effective_format {
+                    OutputFormat::Json => {
+                        // JSON output format similar to agent-tui
+                        let mut output = serde_json::json!({
+                            "screenshot": data.get("screen").and_then(|v| v.as_str()).unwrap_or(""),
+                        });
 
-                // Print cursor info if requested (convert to 1-based for display)
-                if cursor_mode == "print" || cursor_mode == "both" {
-                    if let (Some(cursor_row), Some(cursor_col)) = (
-                        data.get("cursor").and_then(|c| c.get("row")).and_then(|v| v.as_u64()),
-                        data.get("cursor").and_then(|c| c.get("col")).and_then(|v| v.as_u64())
-                    ) {
-                        println!("Cursor: row {}, col {}", cursor_row + 1, cursor_col + 1);
-                    }
-                }
+                        // Add elements if vom was requested
+                        if vom {
+                            if let Some(elements) = data.get("elements").and_then(|v| v.as_array()) {
+                                let agent_tui_elements: Vec<_> = elements.iter()
+                                    .filter(|e| e.get("role").and_then(|r| r.as_str()) != Some("StaticText"))
+                                    .map(|element| {
+                                        let id = element.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                                        let role = element.get("role").and_then(|v| v.as_str()).unwrap_or("?");
+                                        let text = element.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                                        let bounds = element.get("bounds");
+                                        let x = bounds.and_then(|b| b.get("x")).and_then(|v| v.as_u64()).unwrap_or(0);
+                                        let y = bounds.and_then(|b| b.get("y")).and_then(|v| v.as_u64()).unwrap_or(0);
+                                        let width = bounds.and_then(|b| b.get("width")).and_then(|v| v.as_u64()).unwrap_or(0);
+                                        let height = bounds.and_then(|b| b.get("height")).and_then(|v| v.as_u64()).unwrap_or(0);
+                                        let selected = element.get("selected").and_then(|v| v.as_bool()).unwrap_or(false);
+                                        let checked = element.get("checked").and_then(|v| v.as_bool());
 
-                if let Some(screen) = data.get("screen").and_then(|v| v.as_str()) {
-                    // Apply inverse video if requested
-                    if cursor_mode == "inverse" || cursor_mode == "both" {
-                        if let (Some(cursor_row), Some(cursor_col)) = (
-                            data.get("cursor").and_then(|c| c.get("row")).and_then(|v| v.as_u64()),
-                            data.get("cursor").and_then(|c| c.get("col")).and_then(|v| v.as_u64())
-                        ) {
-                            print!("{}", apply_cursor_inverse(screen, cursor_row as usize, cursor_col as usize));
+                                        // Map role to agent-tui type
+                                        let element_type = match role {
+                                            "Button" => "button",
+                                            "Tab" => "tab",
+                                            "Input" => "input",
+                                            "Checkbox" => "checkbox",
+                                            "MenuItem" => "menuitem",
+                                            "Status" => "status",
+                                            "ToolBlock" => "toolblock",
+                                            "PromptMarker" => "prompt",
+                                            "ProgressBar" => "progressbar",
+                                            "Link" => "link",
+                                            "ErrorMessage" => "error",
+                                            "DiffLine" => "diff",
+                                            "CodeBlock" => "codeblock",
+                                            "Panel" => "panel",
+                                            "Radio" => "radio",
+                                            "Select" => "select",
+                                            _ => role,
+                                        };
+
+                                        serde_json::json!({
+                                            "ref": id,
+                                            "type": element_type,
+                                            "label": text,
+                                            "position": {
+                                                "col": x,
+                                                "row": y,
+                                                "width": width,
+                                                "height": height
+                                            },
+                                            "selected": selected,
+                                            "focused": selected, // Use selected as focused for now
+                                            "checked": checked,
+                                            "value": null, // Always null to match agent-tui example
+                                            "disabled": null,
+                                            "hint": null
+                                        })
+                                    })
+                                    .collect();
+
+                                output["elements"] = serde_json::Value::Array(agent_tui_elements);
+                            } else {
+                                output["elements"] = serde_json::json!([]);
+                            }
                         } else {
-                            print!("{}", screen);
+                            output["elements"] = serde_json::json!([]);
                         }
-                    } else {
-                        print!("{}", screen);
+
+                        // Print JSON to stdout
+                        println!("{}", serde_json::to_string_pretty(&output)?);
                     }
-                }
+                    OutputFormat::Text => {
+                        // Original text output format
+                        let cursor_mode = cursor.as_str();
 
-                // Print detected elements if vom was requested
-                if vom {
-                    if let Some(elements) = data.get("elements").and_then(|v| v.as_array()) {
-                        let filtered_elements: Vec<_> = elements.iter()
-                            .filter(|e| e.get("role").and_then(|r| r.as_str()) != Some("StaticText"))
-                            .collect();
+                        // Print cursor info if requested (convert to 1-based for display)
+                        if cursor_mode == "print" || cursor_mode == "both" {
+                            if let (Some(cursor_row), Some(cursor_col)) = (
+                                data.get("cursor").and_then(|c| c.get("row")).and_then(|v| v.as_u64()),
+                                data.get("cursor").and_then(|c| c.get("col")).and_then(|v| v.as_u64())
+                            ) {
+                                println!("Cursor: row {}, col {}", cursor_row + 1, cursor_col + 1);
+                            }
+                        }
 
-                        if !filtered_elements.is_empty() {
-                            println!("Elements:");
-                            for element in filtered_elements {
-                                let id = element.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-                                let role = element.get("role").and_then(|v| v.as_str()).unwrap_or("?");
-                                let text = element.get("text").and_then(|v| v.as_str()).unwrap_or("");
-                                let bounds = element.get("bounds");
-                                let x = bounds.and_then(|b| b.get("x")).and_then(|v| v.as_u64()).unwrap_or(0);
-                                let y = bounds.and_then(|b| b.get("y")).and_then(|v| v.as_u64()).unwrap_or(0);
-                                let selected = element.get("selected").and_then(|v| v.as_bool()).unwrap_or(false);
-
-                                let role_str = match role {
-                                    "Button" => "button",
-                                    "Tab" => "tab",
-                                    "Input" => "input",
-                                    "Checkbox" => "checkbox",
-                                    "MenuItem" => "menuitem",
-                                    "Status" => "status",
-                                    "ToolBlock" => "toolblock",
-                                    "PromptMarker" => "prompt",
-                                    "ProgressBar" => "progressbar",
-                                    "Link" => "link",
-                                    "ErrorMessage" => "error",
-                                    "DiffLine" => "diff",
-                                    "CodeBlock" => "codeblock",
-                                    "Panel" => "panel",
-                                    _ => role,
-                                };
-
-                                print!("{} [{}:{}] ({},{})", id, role_str, text, y, x);
-                                if selected {
-                                    print!(" *focused*");
+                        if let Some(screen) = data.get("screen").and_then(|v| v.as_str()) {
+                            // Apply inverse video if requested
+                            if cursor_mode == "inverse" || cursor_mode == "both" {
+                                if let (Some(cursor_row), Some(cursor_col)) = (
+                                    data.get("cursor").and_then(|c| c.get("row")).and_then(|v| v.as_u64()),
+                                    data.get("cursor").and_then(|c| c.get("col")).and_then(|v| v.as_u64())
+                                ) {
+                                    print!("{}", apply_cursor_inverse(screen, cursor_row as usize, cursor_col as usize));
+                                } else {
+                                    print!("{}", screen);
                                 }
-                                println!();
+                            } else {
+                                print!("{}", screen);
+                            }
+                        }
+
+                        // Print detected elements if vom was requested
+                        if vom {
+                            if let Some(elements) = data.get("elements").and_then(|v| v.as_array()) {
+                                let filtered_elements: Vec<_> = elements.iter()
+                                    .filter(|e| e.get("role").and_then(|r| r.as_str()) != Some("StaticText"))
+                                    .collect();
+
+                                if !filtered_elements.is_empty() {
+                                    println!("Elements:");
+                                    for element in filtered_elements {
+                                        let id = element.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                                        let role = element.get("role").and_then(|v| v.as_str()).unwrap_or("?");
+                                        let text = element.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                                        let bounds = element.get("bounds");
+                                        let x = bounds.and_then(|b| b.get("x")).and_then(|v| v.as_u64()).unwrap_or(0);
+                                        let y = bounds.and_then(|b| b.get("y")).and_then(|v| v.as_u64()).unwrap_or(0);
+                                        let selected = element.get("selected").and_then(|v| v.as_bool()).unwrap_or(false);
+
+                                        let role_str = match role {
+                                            "Button" => "button",
+                                            "Tab" => "tab",
+                                            "Input" => "input",
+                                            "Checkbox" => "checkbox",
+                                            "MenuItem" => "menuitem",
+                                            "Status" => "status",
+                                            "ToolBlock" => "toolblock",
+                                            "PromptMarker" => "prompt",
+                                            "ProgressBar" => "progressbar",
+                                            "Link" => "link",
+                                            "ErrorMessage" => "error",
+                                            "DiffLine" => "diff",
+                                            "CodeBlock" => "codeblock",
+                                            "Panel" => "panel",
+                                            _ => role,
+                                        };
+
+                                        print!("{} [{}:{}] ({},{})", id, role_str, text, y, x);
+                                        if selected {
+                                            print!(" *focused*");
+                                        }
+                                        println!();
+                                    }
+                                }
                             }
                         }
                     }
