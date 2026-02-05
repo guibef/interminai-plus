@@ -8,6 +8,8 @@ __pycache__/
 agent/
 /tmp
 
+.DS_Store
+
 .aider*
 .vscode/
 
