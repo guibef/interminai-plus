@@ -3,10 +3,11 @@ Cargo.lock
 **/*~
 **/*.swp
 
+# Build artifacts
 /target
 /tmp
 
-# AI and IDE
+# AI / IDE
 .aider*
 .vscode/
 .idea/

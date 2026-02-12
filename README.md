@@ -1,4 +1,4 @@
-# interminai-plus: A fork of interminai, an interactive terminal for AI
+# interminai-plus: Fork of interminai, an interactive terminal for AI
 
 A terminal proxy that enables programmatic interaction with interactive CLI applications.
 
@@ -104,4 +104,3 @@ interminai stop --socket PATH
 ## License
 
 This project is licensed under the GNU General Public License v2.0 - see the [LICENSE](LICENSE) file for details.
-
