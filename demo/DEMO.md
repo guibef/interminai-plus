@@ -2,8 +2,10 @@
 
 This guide explains how to create the demo GIFs for interminai. Two demos are included:
 
-1. **Git Rebase Demo** (`demo.gif`) - Claude performs an interactive git rebase with autosquash
-2. **GDB Debugging Demo** (`demo-gdb.gif`) - Claude debugs a C program with GDB to discover function parameters
+1. **Git Rebase Demo** - Claude performs an interactive git rebase with autosquash
+![demo.gif](demo.gif)
+2. **GDB Debugging Demo** - Claude debugs a C program with GDB to discover function parameters
+![demo-gdb.gif](demo-gdb.gif)
 
 ## Git Rebase Demo
 
