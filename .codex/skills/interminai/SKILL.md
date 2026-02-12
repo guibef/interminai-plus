@@ -13,7 +13,7 @@ metadata:
 
 Author: Michael S. Tsirkin <mst@kernel.org>
 
-A terminal proxy for interactive CLI applications. See [examples.md](examples.md) and [reference.md](reference.md) for details.
+A terminal proxy for interactive CLI applications. See [examples.md](./references/examples.md) and [reference.md](./references/reference.md) for details.
 
 ## When to Use
 
