@@ -1,9 +1,15 @@
-/target
 Cargo.lock
 **/*.rs.bk
 **/*~
 **/*.swp
-__pycache__/
-*.pyc
-agent/
+
+/target
+/tmp
+
+# AI and IDE
 .aider*
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
