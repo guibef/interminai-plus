@@ -2,16 +2,9 @@
 name: interminai
 description: Control interactive terminal applications like vim, git rebase -i, git add -i, git add -p, apt, rclone config, sudo, w3m, and TUI apps. Can also supervise another CLI LLM (cursor-agent, codex, etc.) - approve or reject its actions by pressing y/n at confirmation prompts. Use when you need to interact with applications that require keyboard input, show prompts, menus, or have full-screen interfaces. Also use when commands fail or hang with errors like "Input is not a terminal" or "Output is not a terminal". Better than application specific hacks such as GIT_SEQUENCE_EDITOR or bypassing interactivity through file use.
 allowed-tools: Shell
-license: See LICENSE file
-metadata:
-  author: Michael S. Tsirkin <mst@kernel.org>
-  version: 0.1.0
-  category: terminal
 ---
 
-# 🌀 an Interactive Terminal for AI (interminai)
-
-Author: Michael S. Tsirkin <mst@kernel.org>
+# An Interactive Terminal for AI (interminai-plus)
 
 A terminal proxy for interactive CLI applications. See [examples.md](./references/examples.md) and [reference.md](./references/reference.md) for details.
 
@@ -24,6 +17,8 @@ A terminal proxy for interactive CLI applications. See [examples.md](./reference
 **Don't use** for simple commands that just run and exit - use Shell instead.
 
 ## Quick Start
+
+Assume `interminai` command is available in the PATH or in the ./scripts directory.
 
 ```bash
 # 1. Start session (prints socket path to use in subsequent commands)
@@ -237,7 +232,7 @@ Only add `--no-color` when piping to grep/head/tail to avoid ANSI escape corrupt
 ./scripts/interminai output --socket /tmp/interminai-xxx/socket --no-color | tail -5
 ```
 
-See [reference.md](reference.md) for full command documentation.
+See [reference.md](./references/reference.md) for full command documentation.
 
 ## Password Input
 
