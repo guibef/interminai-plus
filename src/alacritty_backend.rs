@@ -11,6 +11,7 @@ use alacritty_terminal::vte::ansi::{self, Color, NamedColor};
 use alacritty_terminal::index::{Column, Line};
 
 use crate::terminal::{TerminalEmulator, UnhandledSequence};
+use crate::vom::{VomGrid, VomStyle, VomColor};
 
 /// Display-related flags that affect ANSI output (excludes internal flags like WRAPLINE)
 fn display_flags(flags: Flags) -> Flags {
@@ -154,6 +155,34 @@ fn color_to_ansi(color: &Color, is_foreground: bool) -> Option<String> {
     }
 }
 
+fn map_color(color: &Color) -> VomColor {
+    match color {
+        Color::Named(named) => {
+            match named {
+                NamedColor::Black => VomColor::Indexed(0),
+                NamedColor::Red => VomColor::Indexed(1),
+                NamedColor::Green => VomColor::Indexed(2),
+                NamedColor::Yellow => VomColor::Indexed(3),
+                NamedColor::Blue => VomColor::Indexed(4),
+                NamedColor::Magenta => VomColor::Indexed(5),
+                NamedColor::Cyan => VomColor::Indexed(6),
+                NamedColor::White => VomColor::Indexed(7),
+                NamedColor::BrightBlack => VomColor::Indexed(8),
+                NamedColor::BrightRed => VomColor::Indexed(9),
+                NamedColor::BrightGreen => VomColor::Indexed(10),
+                NamedColor::BrightYellow => VomColor::Indexed(11),
+                NamedColor::BrightBlue => VomColor::Indexed(12),
+                NamedColor::BrightMagenta => VomColor::Indexed(13),
+                NamedColor::BrightCyan => VomColor::Indexed(14),
+                NamedColor::BrightWhite => VomColor::Indexed(15),
+                _ => VomColor::Default,
+            }
+        }
+        Color::Indexed(idx) => VomColor::Indexed(*idx),
+        Color::Spec(rgb) => VomColor::Rgb(rgb.r, rgb.g, rgb.b),
+    }
+}
+
 /// Convert NamedColor to ANSI code
 fn named_color_to_ansi(color: NamedColor, is_foreground: bool) -> Option<String> {
     let code = match color {
@@ -230,6 +259,37 @@ fn trim_end_preserve_ansi(s: &str) -> &str {
 
     // Return up to and including any trailing ANSI codes
     &s[..end]
+}
+
+impl VomGrid for AlacrittyTerminal {
+    fn grid_dimensions(&self) -> (usize, usize) {
+        (self.rows, self.cols)
+    }
+
+    fn cell(&self, row: usize, col: usize) -> Option<(char, VomStyle)> {
+        if row >= self.rows || col >= self.cols {
+            return None;
+        }
+
+        let grid = self.term.grid();
+        let cell = &grid[Line(row as i32)][Column(col)];
+
+        // Skip wide char spacers - caller might need to handle this
+        // but for VOM we usually want the base char
+        if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
+             return Some((' ', VomStyle::default()));
+        }
+
+        let style = VomStyle {
+            bold: cell.flags.contains(Flags::BOLD),
+            underline: cell.flags.contains(Flags::UNDERLINE),
+            inverse: cell.flags.contains(Flags::INVERSE),
+            fg: map_color(&cell.fg),
+            bg: map_color(&cell.bg),
+        };
+
+        Some((cell.c, style))
+    }
 }
 
 impl TerminalEmulator for AlacrittyTerminal {

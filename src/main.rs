@@ -7,8 +7,9 @@
 mod terminal;
 mod custom_screen;
 mod alacritty_backend;
+pub mod vom;
 
-use clap::{Parser as ClapParser, Subcommand};
+use clap::{Parser as ClapParser, Subcommand, ValueEnum};
 use anyhow::{Result, Context, bail};
 use std::process::{Command as ProcessCommand};
 use std::os::unix::process::CommandExt;
@@ -29,6 +30,7 @@ use std::fs;
 use std::path::Path;
 
 use terminal::TerminalEmulator;
+use vom::Component;
 
 /// Terminal emulator backend
 #[derive(Clone, Copy, Debug, Default, clap::ValueEnum)]
@@ -38,6 +40,16 @@ pub enum Emulator {
     Xterm,
     /// Basic ANSI terminal emulation (custom backend)
     Custom,
+}
+
+/// Output format
+#[derive(Clone, Copy, Debug, Default, ValueEnum)]
+pub enum OutputFormat {
+    /// Human-readable text (default)
+    #[default]
+    Text,
+    /// Machine-readable JSON
+    Json,
 }
 
 #[derive(ClapParser)]
@@ -111,6 +123,18 @@ enum Commands {
         /// Cursor display mode (none, inverse, print, both)
         #[arg(long, default_value = "none")]
         cursor: String,
+
+        /// Detect TUI elements (VOM)
+        #[arg(long)]
+        vom: bool,
+
+        /// Output format (text or json)
+        #[arg(long, value_enum, default_value = "text")]
+        format: OutputFormat,
+
+        /// Shorthand for --format json
+        #[arg(long)]
+        json: bool,
     },
 
     /// Stop running session
@@ -174,6 +198,62 @@ enum Commands {
         #[arg(long)]
         clear: bool,
     },
+
+    /// Perform a semantic action on a TUI element.
+    ///
+    /// Supported Roles:
+    ///
+    ///   @btn (Button), @inp (Input), @chk (Checkbox), @rad (Radio), @sel (Select),
+    ///   @tab (Tab), @menu (MenuItem), @link (Link), @prog (ProgressBar),
+    ///   @stat (Status), @err (Error), @diff (Diff), @code (CodeBlock),
+    ///   @pan (Panel), @tool (ToolBlock), @prom (Prompt), @txt (Text)
+    ///
+    /// Supported Actions:
+    ///
+    ///   click, dbl_click    - Move cursor and send Enter (any element)
+    ///
+    ///   input               - Select all and type text (requires --text)
+    ///
+    ///   clear, select_all   - Send Ctrl+U or Ctrl+A (Input fields)
+    ///
+    ///   toggle              - Send Space (Checkboxes, Radios; optional --state)
+    ///
+    ///   select              - Smart navigation to option by text (Select menus)
+    ///
+    ///   scroll              - Send arrow keys (requires --direction, --amount)
+    ///
+    ///   scroll_into_view    - Auto-scroll down until target text is visible
+    ///
+    ///   focus               - Send Tab key to cycle focus
+    Act {
+        /// Unix socket path (required)
+        #[arg(long, required = true)]
+        socket: String,
+
+        /// Action type (click, dbl_click, input, clear, select_all, toggle, select, scroll, scroll_into_view)
+        #[arg(long)]
+        action: String,
+
+        /// Target element reference (e.g., @btn1)
+        #[arg(long)]
+        target: String,
+
+        /// Input text (for input, select)
+        #[arg(long)]
+        text: Option<String>,
+
+        /// Scroll direction (up, down, left, right)
+        #[arg(long)]
+        direction: Option<String>,
+
+        /// Scroll amount
+        #[arg(long)]
+        amount: Option<u32>,
+
+        /// Desired state (for toggle: true/false)
+        #[arg(long)]
+        state: Option<bool>,
+    },
 }
 
 // Protocol messages
@@ -231,6 +311,8 @@ struct DaemonState {
     pty_dump: Option<std::fs::File>,
     /// Activity flag: set when PTY output is received
     activity: bool,
+    /// Last detected VOM elements
+    last_elements: Vec<Component>,
 }
 
 impl DaemonState {
@@ -326,6 +408,30 @@ fn unescape(s: &str) -> Result<String> {
     }
 
     Ok(result)
+}
+
+fn parse_select_options(screen_text: &str) -> (Vec<String>, usize) {
+    let mut options = Vec::new();
+    let mut selected_idx = 0;
+
+    for line in screen_text.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with('❯') || trimmed.starts_with('›') {
+            selected_idx = options.len();
+            options.push(trimmed.trim_start_matches(['❯', '›', ' ']).to_string());
+        } else if trimmed.starts_with('◉') {
+            selected_idx = options.len();
+            options.push(trimmed.trim_start_matches(['◉', ' ']).to_string());
+        } else if trimmed.starts_with('◯') {
+            options.push(trimmed.trim_start_matches(['◯', ' ']).to_string());
+        } else if trimmed.starts_with('>') && !trimmed.starts_with(">>") {
+            selected_idx = options.len();
+            options.push(trimmed.trim_start_matches(['>', ' ']).to_string());
+        }
+    }
+
+    (options, selected_idx)
 }
 
 fn parse_signal(sig: &str) -> Result<Signal> {
@@ -519,6 +625,7 @@ fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, c
                 should_shutdown: false,
                 pty_dump: pty_dump_file,
                 activity: false,
+                last_elements: Vec::new(),
             }));
 
             // Start PTY reader thread - use poll() for efficient event-driven I/O
@@ -661,6 +768,8 @@ fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, c
 }
 
 fn handle_client(mut stream: UnixStream, state: Arc<Mutex<DaemonState>>) -> Result<()> {
+    stream.set_nonblocking(false)?; // Ensure blocking mode for reliable large responses
+
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut line = String::new();
 
@@ -683,6 +792,7 @@ fn handle_client(mut stream: UnixStream, state: Arc<Mutex<DaemonState>>) -> Resu
     let response = match request.req_type.as_str() {
         "INPUT" => handle_input(request.data, &state),
         "OUTPUT" => handle_output(request.data, &state),
+        "ACT" => handle_act(request.data, &state),
         "STATUS" => handle_running(request.data, &state),
         "WAIT" => handle_wait(request.data.clone(), &state, &stream),
         "KILL" => handle_kill(request.data, &state),
@@ -698,8 +808,7 @@ fn handle_client(mut stream: UnixStream, state: Arc<Mutex<DaemonState>>) -> Resu
 }
 
 fn write_response(stream: &mut UnixStream, response: &Response) -> Result<()> {
-    let json = serde_json::to_string(response)?;
-    stream.write_all(json.as_bytes())?;
+    serde_json::to_writer(&mut *stream, response)?;
     stream.write_all(b"\n")?;
     stream.flush()?;
     Ok(())
@@ -721,6 +830,7 @@ fn handle_input(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Res
 
 fn handle_output(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Response {
     let format = data.get("format").and_then(|v| v.as_str()).unwrap_or("ascii");
+    let detect_elements = data.get("elements").and_then(|v| v.as_bool()).unwrap_or(false);
 
     let mut state = state.lock().unwrap();
     state.read_pty_output();
@@ -732,7 +842,7 @@ fn handle_output(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Re
     let (cursor_row, cursor_col) = state.terminal.cursor_position();
     let (rows, cols) = state.terminal.dimensions();
 
-    let data = serde_json::json!({
+    let mut res_data = serde_json::json!({
         "screen": screen_text,
         "cursor": {
             "row": cursor_row,
@@ -744,7 +854,211 @@ fn handle_output(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Re
         }
     });
 
-    Response::ok(data)
+    if detect_elements {
+        let elements = vom::engine::analyze(state.terminal.as_ref(), (cursor_row, cursor_col));
+        state.last_elements = elements.clone();
+        res_data["elements"] = serde_json::to_value(elements).unwrap_or(serde_json::Value::Null);
+    }
+
+    Response::ok(res_data)
+}
+
+fn handle_act(data: serde_json::Value, state_lock: &Arc<Mutex<DaemonState>>) -> Response {
+    let action = match data.get("action").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => return Response::error("Missing 'action' field".to_string()),
+    };
+    let target = match data.get("target").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => return Response::error("Missing 'target' field".to_string()),
+    };
+
+    let element = {
+        let state = state_lock.lock().unwrap();
+        match state.last_elements.iter().find(|e| e.id == target) {
+            Some(e) => e.clone(),
+            None => return Response::error(format!("Element not found: {}", target)),
+        }
+    };
+
+    match action {
+        "click" => {
+            let state = state_lock.lock().unwrap();
+            let center_x = element.bounds.x + element.bounds.width / 2;
+            let center_y = element.bounds.y;
+
+            // Move cursor and send Enter as a fallback for "click"
+            let move_seq = format!("\x1b[{};{}H\r", center_y + 1, center_x + 1);
+            match nix::unistd::write(state.master_fd.as_raw_fd(), move_seq.as_bytes()) {
+                Ok(_) => Response::ok(serde_json::json!({})),
+                Err(e) => Response::error(format!("Failed to write to PTY: {}", e)),
+            }
+        }
+        "dbl_click" => {
+            let state = state_lock.lock().unwrap();
+            let center_x = element.bounds.x + element.bounds.width / 2;
+            let center_y = element.bounds.y;
+
+            let move_seq = format!("\x1b[{};{}H\r", center_y + 1, center_x + 1);
+            match nix::unistd::write(state.master_fd.as_raw_fd(), move_seq.as_bytes()) {
+                Ok(_) => {
+                    thread::sleep(Duration::from_millis(50));
+                    match nix::unistd::write(state.master_fd.as_raw_fd(), move_seq.as_bytes()) {
+                        Ok(_) => Response::ok(serde_json::json!({})),
+                        Err(e) => Response::error(format!("Failed to write to PTY: {}", e)),
+                    }
+                }
+                Err(e) => Response::error(format!("Failed to write to PTY: {}", e)),
+            }
+        }
+        "input" => {
+            let state = state_lock.lock().unwrap();
+            let text = match data.get("text").and_then(|v| v.as_str()) {
+                Some(s) => s,
+                None => return Response::error("Missing 'text' field for input action".to_string()),
+            };
+            // Move to element, select all (Ctrl+A), and send text
+            let seq = format!("\x1b[{};{}H\x01{}", element.bounds.y + 1, element.bounds.x + 1, text);
+            match nix::unistd::write(state.master_fd.as_raw_fd(), seq.as_bytes()) {
+                Ok(_) => Response::ok(serde_json::json!({})),
+                Err(e) => Response::error(format!("Failed to write to PTY: {}", e)),
+            }
+        }
+        "clear" => {
+            let state = state_lock.lock().unwrap();
+            // Send Ctrl+U to clear input
+            match nix::unistd::write(state.master_fd.as_raw_fd(), b"\x15") {
+                Ok(_) => Response::ok(serde_json::json!({})),
+                Err(e) => Response::error(format!("Failed to write to PTY: {}", e)),
+            }
+        }
+        "select_all" => {
+            let state = state_lock.lock().unwrap();
+            // Send Ctrl+A
+            match nix::unistd::write(state.master_fd.as_raw_fd(), b"\x01") {
+                Ok(_) => Response::ok(serde_json::json!({})),
+                Err(e) => Response::error(format!("Failed to write to PTY: {}", e)),
+            }
+        }
+        "toggle" => {
+            let desired_state = data.get("state").and_then(|v| v.as_bool());
+
+            let current_checked = element.checked.unwrap_or(false);
+            let should_toggle = match desired_state {
+                Some(s) => s != current_checked,
+                None => true, // Always toggle if no state specified
+            };
+
+            if should_toggle {
+                let state = state_lock.lock().unwrap();
+                if element.role != vom::Role::Checkbox && element.role != vom::Role::Radio {
+                    return Response::error(format!("Element {} is not a checkbox or radio", target));
+                }
+                // Move to element and send Space
+                let seq = format!("\x1b[{};{}H ", element.bounds.y + 1, element.bounds.x + 1);
+                match nix::unistd::write(state.master_fd.as_raw_fd(), seq.as_bytes()) {
+                    Ok(_) => Response::ok(serde_json::json!({})),
+                    Err(e) => Response::error(format!("Failed to write to PTY: {}", e)),
+                }
+            } else {
+                Response::ok(serde_json::json!({ "message": "Already in desired state" }))
+            }
+        }
+        "select" => {
+            let option = data.get("text").and_then(|v| v.as_str());
+            if let Some(target_opt) = option {
+                let mut state = state_lock.lock().unwrap();
+                state.read_pty_output();
+                let screen_text = state.terminal.get_screen_content();
+
+                let (options, current_idx) = parse_select_options(&screen_text);
+                let target_lower = target_opt.to_lowercase();
+                let target_idx = options
+                    .iter()
+                    .position(|opt| opt.to_lowercase().contains(&target_lower));
+
+                if let Some(idx) = target_idx {
+                    let steps = idx as i32 - current_idx as i32;
+                    let key = if steps > 0 { b"\x1b[B" } else { b"\x1b[A" }; // DOWN, UP
+
+                    for _ in 0..steps.abs() {
+                        let _ = nix::unistd::write(state.master_fd.as_raw_fd(), key);
+                        // We need to wait a bit for the app to respond
+                        thread::sleep(Duration::from_millis(30));
+                    }
+                }
+                // Finally send Enter
+                let _ = nix::unistd::write(state.master_fd.as_raw_fd(), b"\r");
+                Response::ok(serde_json::json!({}))
+            } else {
+                let state = state_lock.lock().unwrap();
+                let center_x = element.bounds.x + element.bounds.width / 2;
+                let center_y = element.bounds.y;
+                let move_seq = format!("\x1b[{};{}H\r", center_y + 1, center_x + 1);
+                match nix::unistd::write(state.master_fd.as_raw_fd(), move_seq.as_bytes()) {
+                    Ok(_) => Response::ok(serde_json::json!({})),
+                    Err(e) => Response::error(format!("Failed to write to PTY: {}", e)),
+                }
+            }
+        }
+        "focus" => {
+            let state = state_lock.lock().unwrap();
+            // Fallback for focus: send Tab
+            match nix::unistd::write(state.master_fd.as_raw_fd(), b"\t") {
+                Ok(_) => Response::ok(serde_json::json!({})),
+                Err(e) => Response::error(format!("Failed to write to PTY: {}", e)),
+            }
+        }
+        "scroll" => {
+            let state = state_lock.lock().unwrap();
+            let direction = match data.get("direction").and_then(|v| v.as_str()) {
+                Some(s) => s,
+                None => return Response::error("Missing 'direction' field for scroll action".to_string()),
+            };
+            let amount = data.get("amount").and_then(|v| v.as_u64()).unwrap_or(1);
+
+            let key_seq = match direction {
+                "up" => "\x1b[A",
+                "down" => "\x1b[B",
+                "left" => "\x1b[D",
+                "right" => "\x1b[C",
+                _ => return Response::error(format!("Invalid direction: {}", direction)),
+            };
+
+            for _ in 0..amount {
+                if let Err(e) = nix::unistd::write(state.master_fd.as_raw_fd(), key_seq.as_bytes()) {
+                    return Response::error(format!("Failed to write to PTY: {}", e));
+                }
+            }
+            Response::ok(serde_json::json!({}))
+        }
+        "scroll_into_view" => {
+            // Scroll down until element is found or limit reached
+            let max_scrolls = 20;
+            let mut scrolls = 0;
+            let element_text = element.text.clone();
+
+            while scrolls < max_scrolls {
+                {
+                    let mut state = state_lock.lock().unwrap();
+                    state.read_pty_output();
+                    let (cursor_row, cursor_col) = state.terminal.cursor_position();
+                    let elements = vom::engine::analyze(state.terminal.as_ref(), (cursor_row, cursor_col));
+                    if elements.iter().any(|e| e.text == element_text) {
+                        return Response::ok(serde_json::json!({ "scrolls": scrolls }));
+                    }
+                    // Scroll down
+                    if let Err(e) = nix::unistd::write(state.master_fd.as_raw_fd(), b"\x1b[B") {
+                        return Response::error(format!("Failed to write to PTY: {}", e));
+                    }
+                }
+                scrolls += 1;
+                thread::sleep(Duration::from_millis(100));
+            }
+            Response::error(format!("Element not found after {} scrolls", max_scrolls))
+        }
+        _ => Response::error(format!("Unknown action: {}", action)),
+    }
 }
 
 fn handle_running(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Response {
@@ -1058,10 +1372,7 @@ fn send_request(socket_path: &str, request: serde_json::Value) -> Result<Respons
     stream.flush()?;
 
     let mut reader = BufReader::new(stream);
-    let mut line = String::new();
-    reader.read_line(&mut line)?;
-
-    let response: Response = serde_json::from_str(&line)?;
+    let response: Response = serde_json::from_reader(&mut reader)?;
     Ok(response)
 }
 
@@ -1236,14 +1547,18 @@ fn main() -> Result<()> {
                 std::process::exit(1);
             }
         }
-        Commands::Output { socket, color, no_color, cursor } => {
+        Commands::Output { socket, color, no_color, cursor, vom, format, json } => {
             // Default is color (ansi), --no-color disables it
-            let format = if no_color { "ascii" } else { "ansi" };
+            let screen_format = if no_color { "ascii" } else { "ansi" };
             let _ = color; // --color is just for explicitness, default is already color
+
+            // Determine effective output format (json flag takes precedence)
+            let effective_format = if json { OutputFormat::Json } else { format };
 
             let request = serde_json::json!({
                 "type": "OUTPUT",
-                "format": format
+                "format": screen_format,
+                "elements": vom
             });
 
             let response = send_request(&socket, request)?;
@@ -1254,31 +1569,157 @@ fn main() -> Result<()> {
             }
 
             if let Some(data) = response.data {
-                let cursor_mode = cursor.as_str();
+                match effective_format {
+                    OutputFormat::Json => {
+                        // JSON output format similar to agent-tui
+                        let mut output = serde_json::json!({
+                            "screenshot": data.get("screen").and_then(|v| v.as_str()).unwrap_or(""),
+                        });
 
-                // Print cursor info if requested (convert to 1-based for display)
-                if cursor_mode == "print" || cursor_mode == "both" {
-                    if let (Some(cursor_row), Some(cursor_col)) = (
-                        data.get("cursor").and_then(|c| c.get("row")).and_then(|v| v.as_u64()),
-                        data.get("cursor").and_then(|c| c.get("col")).and_then(|v| v.as_u64())
-                    ) {
-                        println!("Cursor: row {}, col {}", cursor_row + 1, cursor_col + 1);
-                    }
-                }
+                        // Add elements if vom was requested
+                        if vom {
+                            if let Some(elements) = data.get("elements").and_then(|v| v.as_array()) {
+                                let agent_tui_elements: Vec<_> = elements.iter()
+                                    .filter(|e| e.get("role").and_then(|r| r.as_str()) != Some("StaticText"))
+                                    .map(|element| {
+                                        let id = element.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                                        let role = element.get("role").and_then(|v| v.as_str()).unwrap_or("?");
+                                        let text = element.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                                        let bounds = element.get("bounds");
+                                        let x = bounds.and_then(|b| b.get("x")).and_then(|v| v.as_u64()).unwrap_or(0);
+                                        let y = bounds.and_then(|b| b.get("y")).and_then(|v| v.as_u64()).unwrap_or(0);
+                                        let width = bounds.and_then(|b| b.get("width")).and_then(|v| v.as_u64()).unwrap_or(0);
+                                        let height = bounds.and_then(|b| b.get("height")).and_then(|v| v.as_u64()).unwrap_or(0);
+                                        let selected = element.get("selected").and_then(|v| v.as_bool()).unwrap_or(false);
+                                        let checked = element.get("checked").and_then(|v| v.as_bool());
 
-                if let Some(screen) = data.get("screen").and_then(|v| v.as_str()) {
-                    // Apply inverse video if requested
-                    if cursor_mode == "inverse" || cursor_mode == "both" {
-                        if let (Some(cursor_row), Some(cursor_col)) = (
-                            data.get("cursor").and_then(|c| c.get("row")).and_then(|v| v.as_u64()),
-                            data.get("cursor").and_then(|c| c.get("col")).and_then(|v| v.as_u64())
-                        ) {
-                            print!("{}", apply_cursor_inverse(screen, cursor_row as usize, cursor_col as usize));
+                                        // Map role to agent-tui type
+                                        let element_type = match role {
+                                            "Button" => "button",
+                                            "Tab" => "tab",
+                                            "Input" => "input",
+                                            "Checkbox" => "checkbox",
+                                            "MenuItem" => "menuitem",
+                                            "Status" => "status",
+                                            "ToolBlock" => "toolblock",
+                                            "PromptMarker" => "prompt",
+                                            "ProgressBar" => "progressbar",
+                                            "Link" => "link",
+                                            "ErrorMessage" => "error",
+                                            "DiffLine" => "diff",
+                                            "CodeBlock" => "codeblock",
+                                            "Panel" => "panel",
+                                            "Radio" => "radio",
+                                            "Select" => "select",
+                                            _ => role,
+                                        };
+
+                                        serde_json::json!({
+                                            "ref": id,
+                                            "type": element_type,
+                                            "label": text,
+                                            "position": {
+                                                "col": x,
+                                                "row": y,
+                                                "width": width,
+                                                "height": height
+                                            },
+                                            "selected": selected,
+                                            "focused": selected, // Use selected as focused for now
+                                            "checked": checked,
+                                            "value": null, // Always null to match agent-tui example
+                                            "disabled": null,
+                                            "hint": null
+                                        })
+                                    })
+                                    .collect();
+
+                                output["elements"] = serde_json::Value::Array(agent_tui_elements);
+                            } else {
+                                output["elements"] = serde_json::json!([]);
+                            }
                         } else {
-                            print!("{}", screen);
+                            output["elements"] = serde_json::json!([]);
                         }
-                    } else {
-                        print!("{}", screen);
+
+                        // Print JSON to stdout
+                        println!("{}", serde_json::to_string_pretty(&output)?);
+                    }
+                    OutputFormat::Text => {
+                        // Original text output format
+                        let cursor_mode = cursor.as_str();
+
+                        // Print cursor info if requested (convert to 1-based for display)
+                        if cursor_mode == "print" || cursor_mode == "both" {
+                            if let (Some(cursor_row), Some(cursor_col)) = (
+                                data.get("cursor").and_then(|c| c.get("row")).and_then(|v| v.as_u64()),
+                                data.get("cursor").and_then(|c| c.get("col")).and_then(|v| v.as_u64())
+                            ) {
+                                println!("Cursor: row {}, col {}", cursor_row + 1, cursor_col + 1);
+                            }
+                        }
+
+                        if let Some(screen) = data.get("screen").and_then(|v| v.as_str()) {
+                            // Apply inverse video if requested
+                            if cursor_mode == "inverse" || cursor_mode == "both" {
+                                if let (Some(cursor_row), Some(cursor_col)) = (
+                                    data.get("cursor").and_then(|c| c.get("row")).and_then(|v| v.as_u64()),
+                                    data.get("cursor").and_then(|c| c.get("col")).and_then(|v| v.as_u64())
+                                ) {
+                                    print!("{}", apply_cursor_inverse(screen, cursor_row as usize, cursor_col as usize));
+                                } else {
+                                    print!("{}", screen);
+                                }
+                            } else {
+                                print!("{}", screen);
+                            }
+                        }
+
+                        // Print detected elements if vom was requested
+                        if vom {
+                            if let Some(elements) = data.get("elements").and_then(|v| v.as_array()) {
+                                let filtered_elements: Vec<_> = elements.iter()
+                                    .filter(|e| e.get("role").and_then(|r| r.as_str()) != Some("StaticText"))
+                                    .collect();
+
+                                if !filtered_elements.is_empty() {
+                                    println!("Elements:");
+                                    for element in filtered_elements {
+                                        let id = element.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                                        let role = element.get("role").and_then(|v| v.as_str()).unwrap_or("?");
+                                        let text = element.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                                        let bounds = element.get("bounds");
+                                        let x = bounds.and_then(|b| b.get("x")).and_then(|v| v.as_u64()).unwrap_or(0);
+                                        let y = bounds.and_then(|b| b.get("y")).and_then(|v| v.as_u64()).unwrap_or(0);
+                                        let selected = element.get("selected").and_then(|v| v.as_bool()).unwrap_or(false);
+
+                                        let role_str = match role {
+                                            "Button" => "button",
+                                            "Tab" => "tab",
+                                            "Input" => "input",
+                                            "Checkbox" => "checkbox",
+                                            "MenuItem" => "menuitem",
+                                            "Status" => "status",
+                                            "ToolBlock" => "toolblock",
+                                            "PromptMarker" => "prompt",
+                                            "ProgressBar" => "progressbar",
+                                            "Link" => "link",
+                                            "ErrorMessage" => "error",
+                                            "DiffLine" => "diff",
+                                            "CodeBlock" => "codeblock",
+                                            "Panel" => "panel",
+                                            _ => role,
+                                        };
+
+                                        print!("{} [{}:{}] ({},{})", id, role_str, text, y, x);
+                                        if selected {
+                                            print!(" *focused*");
+                                        }
+                                        println!();
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1474,6 +1915,26 @@ fn main() -> Result<()> {
                     }
                 }
             }
+        }
+        Commands::Act { socket, action, target, text, direction, amount, state } => {
+            let request = serde_json::json!({
+                "type": "ACT",
+                "action": action,
+                "target": target,
+                "text": text,
+                "direction": direction,
+                "amount": amount,
+                "state": state
+            });
+
+            let response = send_request(&socket, request)?;
+
+            if response.status == "error" {
+                eprintln!("Error: {}", response.error.unwrap_or_default());
+                std::process::exit(1);
+            }
+
+            println!("Action {} performed on {}", action, target);
         }
     }
 

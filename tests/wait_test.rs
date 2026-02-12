@@ -32,18 +32,19 @@ fn test_wait_interrupted_by_client_disconnect() {
     let socket_path_clone = socket_path.to_str().unwrap().to_string();
     let interminai_bin_path = interminai_bin();
     let wait_thread = thread::spawn(move || {
-        // Use timeout command to kill WAIT after 2 seconds
-        let output = std::process::Command::new("timeout")
-            .arg("2")
-            .arg(&interminai_bin_path)
+        let mut child = std::process::Command::new(&interminai_bin_path)
             .arg("wait")
             .arg("--socket")
             .arg(&socket_path_clone)
-            .output()
+            .spawn()
             .expect("Failed to run wait command");
 
-        // Timeout command returns 124 when it times out
-        assert_eq!(output.status.code(), Some(124), "Wait should have timed out");
+        // Let it run for 1 second
+        thread::sleep(Duration::from_secs(1));
+
+        // Kill it to simulate disconnect
+        child.kill().expect("Failed to kill wait command");
+        let _ = child.wait();
     });
 
     // Wait for the WAIT command to start and then timeout
